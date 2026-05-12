@@ -72,10 +72,11 @@ private:
         // angular.z → góc lái được tính bởi amr_control node
         // ở đây chỉ forward command, steering_angle_ được set qua topic riêng
         driver_.sendCommand(linear_mm_s, steering_angle_);
-        // NOTE: STM32 nhận lệnh qua UART rồi điều khiển Hiwonder 4-Ch Encoder Motor Driver
-        // qua I2C (không phải PWM trực tiếp). Firmware STM32 cần implement I2C master
-        // để ghi speed command vào register của module Hiwonder.
-        // Tra cứu I2C address và register map trong datasheet module Hiwonder.
+        // Chuỗi điều khiển phần cứng (firmware STM32 cần implement):
+        //   Motor : STM32 → I2C → Hiwonder 4-Ch Encoder Motor Driver → JGB37-520
+        //   Servo : STM32 USART (TTL) → Hiwonder TTL Bus Servo Debugging Board → HTS-20H
+        // Tra cứu I2C register map (motor driver) và servo bus protocol (TTL board) trong
+        // tài liệu Hiwonder trước khi viết firmware.
     }
 
     void steeringCallback(const std_msgs::msg::Float32& msg) {

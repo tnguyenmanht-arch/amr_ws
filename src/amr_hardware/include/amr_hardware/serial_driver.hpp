@@ -10,6 +10,10 @@ namespace amr_hardware {
 // TX (Jetson → STM32): "V<linear_mm_s> S<steering_deg>\n"
 // RX (STM32 → Jetson): "E<left_ticks> <right_ticks>\n"
 //
+// Chuỗi điều khiển phần cứng phía STM32:
+//   Motor:  STM32 → I2C → Hiwonder 4-Ch Encoder Motor Driver → JGB37-520
+//   Servo:  STM32 USART → TTL → Hiwonder TTL Bus Servo Debugging Board → HTS-20H
+//
 // CẦN ĐIỀU CHỈNH giao thức nếu dùng micro-ROS thay vì custom UART
 
 struct OdomData {

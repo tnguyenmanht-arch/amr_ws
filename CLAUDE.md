@@ -14,9 +14,11 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 ```
 [Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F446RE Nucleo-64]
         (ROS2 Master)                              (Low-level Slave)
-        ↑            ↑                              ↑           ↑
-  IMX-219 Camera  RPLidar A1M8              JGB37-520 Motors  HTS-20H Servo
-  (lane detect)   (SLAM/Nav)               (drive wheels)    (steering)
+        ↑            ↑                              ↑                    ↑
+  IMX-219 Camera  RPLidar A1M8        [Hiwonder 4-Ch Motor Driver]  [Hiwonder TTL Bus]
+  (lane detect)   (SLAM/Nav)              I2C ↓                     Servo Board ↓
+                                     JGB37-520 Motors              HTS-20H Servo
+                                      (drive wheels)                (steering)
 ```
 
 ---
@@ -32,17 +34,19 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 
 ### Slave: STM32F446RE Nucleo-64
 - Firmware: STM32CubeIDE / PlatformIO
-- Nhiệm vụ: nhận cmd_vel → điều khiển motor PWM, đọc encoder, điều khiển servo qua Serial Bus
+- Nhiệm vụ: nhận cmd_vel → điều khiển motor (I2C), đọc encoder, điều khiển servo qua TTL Bus Board
 - Giao thức với master: rosserial / micro-ROS / custom UART protocol
 - Timer dùng cho encoder: TIM2, TIM3 (quadrature mode)
-- PWM output cho motor: TIM1_CH1, TIM1_CH2
+- I2C → Hiwonder 4-Ch Encoder Motor Driver (điều khiển JGB37-520)
+- USART TTL → Hiwonder TTL Bus Servo Debugging Board → HTS-20H Serial Bus Servo
 
 ### Cơ cấu chấp hành
 | Thiết bị | Model | Giao tiếp | Ghi chú |
 |---|---|---|---|
 | Drive Motor (×2) | JGB37-520 DC w/ Encoder | PWM + DIR + Encoder | 12V, đọc encoder 11 PPR × gear ratio: 90:1 |
-| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (UART-based) | Góc lái Ackermann, không phải servo thường |
+| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (TTL) | Góc lái Ackermann, điều khiển qua TTL Bus Servo Board |
 | Motor Driver | 4-Ch Encoder Motor Driver Hiwonder | I2C | Mạch module sẵn của Hiwonder |
+| TTL Bus Servo Board | Hiwonder TTL Bus Servo Debugging Board | UART TTL (từ STM32) | Cầu nối STM32 ↔ HTS-20H Serial Bus |
 
 ### Cảm biến
 | Thiết bị | Model | Giao tiếp | Topic ROS2 |

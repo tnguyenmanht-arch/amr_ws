@@ -2,6 +2,17 @@
 
 Driver C++ giao tiếp UART/USB giữa Jetson Orin Nano và STM32F446RE.
 
+## Kiến trúc phần cứng
+
+```
+Jetson Orin Nano
+     │ UART/USB
+     ▼
+STM32F446RE Nucleo-64
+     ├─── I2C ──────────► Hiwonder 4-Ch Encoder Motor Driver ──► JGB37-520 (×2)
+     └─── USART (TTL) ──► Hiwonder TTL Bus Servo Debugging Board ──► HTS-20H Servo
+```
+
 ## Nodes
 
 ### `serial_driver_node`
@@ -20,8 +31,8 @@ Driver C++ giao tiếp UART/USB giữa Jetson Orin Nano và STM32F446RE.
 |-----------|---------|---------|
 | `serial_port` | `/dev/ttyUSB0` | Kiểm tra `ls /dev/ttyUSB*` |
 | `baud_rate` | `115200` | Phải khớp STM32 firmware |
-| `wheel_radius` | `0.04` m | Đo thực tế |
-| `wheel_base` | `0.22` m | Đo thực tế |
+| `wheel_radius` | `0.10` m | Đo thực tế |
+| `wheel_base` | `0.21` m | Đo thực tế |
 | `encoder_ppr` | `11` | PPR trên trục motor JGB37-520 |
 | `gear_ratio` | `90.0` | Tỉ số truyền JGB37-520 |
 
