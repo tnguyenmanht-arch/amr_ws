@@ -1,0 +1,54 @@
+slam_toolbox:
+  ros__parameters:
+    # ─── Mode ────────────────────────────────────────────────────
+    # async: không đồng bộ, phù hợp robot thực với tài nguyên giới hạn
+    # sync:  đồng bộ, dùng khi muốn deterministic (bag playback)
+    mode: mapping  # mapping | localization
+
+    # ─── Inputs ──────────────────────────────────────────────────
+    odom_frame:        odom
+    map_frame:         map
+    base_frame:        base_link
+    scan_topic:        /scan
+    use_map_saver:     true
+    use_lifecycle_manager: false
+
+    # ─── LiDAR filter ────────────────────────────────────────────
+    # RPLidar A1M8: range tối đa 12m, noise ở <0.15m
+    min_laser_range: 0.15
+    max_laser_range: 10.0
+
+    # ─── Resolution & update ─────────────────────────────────────
+    resolution:            0.05   # mét/ô — 5cm phù hợp robot nhỏ
+    map_update_interval:   5.0    # giây
+
+    # ─── Loop closure ────────────────────────────────────────────
+    enable_interactive_mode: false
+    do_loop_closing:         true
+    loop_search_maximum_distance: 3.0
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine:   0.45
+
+    # ─── Scan matcher ────────────────────────────────────────────
+    distance_variance_penalty:   0.5
+    angle_variance_penalty:      1.0
+    fine_search_angle_offset:    0.00349
+    coarse_search_angle_offset:  0.349
+    coarse_angle_resolution:     0.0349
+    minimum_angle_penalty:       0.9
+    minimum_distance_penalty:    0.5
+    use_response_expansion:      true
+
+    # ─── Solver ──────────────────────────────────────────────────
+    solver_plugin:       solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type:    TRADITIONAL_DOGLEG
+    ceres_loss_function:  None
+
+    # ─── Transform tolerance ─────────────────────────────────────
+    transform_publish_period: 0.02   # 50 Hz
+    tf_buffer_duration:       30.0
