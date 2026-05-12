@@ -9,13 +9,13 @@
 
   <!-- ─── Tham số kích thước (đơn vị: mét) ─────────────────────── -->
   <!-- CẦN ĐIỀU CHỈNH theo kích thước khung xe thực tế -->
-  <xacro:property name="base_length"   value="0.30"/>  <!-- chiều dài -->
-  <xacro:property name="base_width"    value="0.20"/>  <!-- chiều rộng -->
-  <xacro:property name="base_height"   value="0.08"/>  <!-- chiều cao chassis -->
-  <xacro:property name="wheel_radius"  value="0.04"/>  <!-- bán kính bánh -->
-  <xacro:property name="wheel_width"   value="0.025"/> <!-- bề rộng bánh -->
-  <xacro:property name="wheelbase"     value="0.22"/>  <!-- khoảng cách trục trước-sau -->
-  <xacro:property name="track_width"   value="0.18"/>  <!-- khoảng cách 2 bánh ngang -->
+  <xacro:property name="base_length"   value="0.304"/> <!-- chiều dài -->
+  <xacro:property name="base_width"    value="0.268"/> <!-- chiều rộng -->
+  <xacro:property name="base_height"   value="0.084"/> <!-- chiều cao chassis -->
+  <xacro:property name="wheel_radius"  value="0.10"/>  <!-- bán kính bánh -->
+  <xacro:property name="wheel_width"   value="0.029"/> <!-- bề rộng bánh -->
+  <xacro:property name="wheelbase"     value="0.21"/>  <!-- khoảng cách trục trước-sau -->
+  <xacro:property name="track_width"   value="0.217"/> <!-- khoảng cách 2 bánh ngang -->
 
   <!-- ─── Materials ─────────────────────────────────────────────── -->
   <material name="dark_grey">
@@ -55,10 +55,10 @@
     </collision>
     <inertial>
       <mass value="2.0"/>
-      <!-- Điều chỉnh inertia theo khối lượng thực tế -->
-      <inertia ixx="0.012" ixy="0" ixz="0"
-               iyy="0.020" iyz="0"
-               izz="0.028"/>
+      <!-- Inertia tính cho hộp đặc m=2kg, L=0.304 W=0.268 H=0.084 -->
+      <inertia ixx="0.0132" ixy="0" ixz="0"
+               iyy="0.0166" iyz="0"
+               izz="0.0274"/>
     </inertial>
   </link>
 

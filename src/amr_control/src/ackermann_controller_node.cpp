@@ -12,9 +12,8 @@ class AckermannControllerNode : public rclcpp::Node {
 public:
     AckermannControllerNode() : Node("ackermann_controller_node") {
         // ─── Parameters ─────────────────────────────────────────
-        // CẦN ĐIỀU CHỈNH theo kích thước xe thực tế
-        this->declare_parameter("wheelbase_m",      0.22);
-        this->declare_parameter("track_width_m",    0.18);
+        this->declare_parameter("wheelbase_m",      0.21);
+        this->declare_parameter("track_width_m",    0.217);
         // Góc lái tối đa HTS-20H: kiểm tra spec servo
         this->declare_parameter("max_steering_deg", 30.0);
 

@@ -21,8 +21,8 @@ public:
         // CẦN ĐIỀU CHỈNH các thông số này theo phần cứng thực tế
         this->declare_parameter("serial_port",    "/dev/ttyUSB0");
         this->declare_parameter("baud_rate",      115200);
-        this->declare_parameter("wheel_radius",   0.04);     // mét
-        this->declare_parameter("wheel_base",     0.22);     // mét
+        this->declare_parameter("wheel_radius",   0.10);     // mét
+        this->declare_parameter("wheel_base",     0.21);     // mét
         this->declare_parameter("encoder_ppr",    11);       // pulses per revolution (motor shaft)
         this->declare_parameter("gear_ratio",     90.0);     // tỉ số truyền JGB37-520
         this->declare_parameter("publish_rate_hz", 20.0);
@@ -150,8 +150,8 @@ private:
     int          baud_;
 
     // Robot params
-    double wheel_radius_   = 0.04;
-    double wheel_base_     = 0.22;
+    double wheel_radius_   = 0.10;
+    double wheel_base_     = 0.21;
     double ticks_per_rev_  = 990.0;  // 11 PPR × 90 gear ratio
 
     // State

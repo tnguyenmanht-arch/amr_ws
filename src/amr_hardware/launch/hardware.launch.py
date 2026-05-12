@@ -24,9 +24,8 @@ def generate_launch_description():
             parameters=[{
                 'serial_port': serial_port,
                 'baud_rate':   baud_rate,
-                # CẦN ĐIỀU CHỈNH theo phần cứng thực tế
-                'wheel_radius':    0.04,
-                'wheel_base':      0.22,
+                'wheel_radius':    0.10,
+                'wheel_base':      0.21,
                 'encoder_ppr':     11,
                 'gear_ratio':      90.0,
                 'publish_rate_hz': 20.0,

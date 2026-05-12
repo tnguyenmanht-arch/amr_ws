@@ -159,7 +159,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      robot_radius: 0.15  # CẦN ĐIỀU CHỈNH theo kích thước xe
+      robot_radius: 0.21  # circumscribed radius: sqrt((0.152)²+(0.134)²) ≈ 0.20m
       plugins: ["voxel_layer", "inflation_layer"]
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer

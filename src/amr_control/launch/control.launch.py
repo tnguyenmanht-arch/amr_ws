@@ -11,9 +11,8 @@ def generate_launch_description():
             name='ackermann_controller_node',
             output='screen',
             parameters=[{
-                # CẦN ĐIỀU CHỈNH theo kích thước xe thực tế (đơn vị: mét)
-                'wheelbase_m':      0.22,
-                'track_width_m':    0.18,
+                'wheelbase_m':      0.21,
+                'track_width_m':    0.217,
                 'max_steering_deg': 30.0,  # kiểm tra giới hạn servo HTS-20H
             }],
         ),
