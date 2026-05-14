@@ -3,89 +3,120 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <cstring>
-#include <cstdio>
 #include <cerrno>
 
 namespace amr_hardware {
 
-SerialDriver::~SerialDriver() {
-    close();
-}
+SerialDriver::~SerialDriver() { close(); }
 
 bool SerialDriver::open(const std::string& port, int baud_rate) {
     fd_ = ::open(port.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
-    if (fd_ < 0) {
-        return false;
-    }
+    if (fd_ < 0) return false;
 
     struct termios tty{};
-    if (tcgetattr(fd_, &tty) != 0) {
-        ::close(fd_);
-        fd_ = -1;
-        return false;
-    }
+    if (tcgetattr(fd_, &tty) != 0) { ::close(fd_); fd_ = -1; return false; }
 
     speed_t speed = toBaudRate(baud_rate);
     cfsetispeed(&tty, speed);
     cfsetospeed(&tty, speed);
 
-    // 8N1, no flow control
-    tty.c_cflag &= ~PARENB;
-    tty.c_cflag &= ~CSTOPB;
-    tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;
-    tty.c_cflag &= ~CRTSCTS;
-    tty.c_cflag |= CREAD | CLOCAL;
+    tty.c_cflag &= ~(PARENB | CSTOPB | CSIZE | CRTSCTS);
+    tty.c_cflag |=  CS8 | CREAD | CLOCAL;
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
-    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY | IGNBRK | BRKINT |
+                     PARMRK | ISTRIP | INLCR | IGNCR | ICRNL);
     tty.c_oflag &= ~(OPOST | ONLCR);
     tty.c_cc[VMIN]  = 0;
-    tty.c_cc[VTIME] = 10;  // 1 giây timeout
+    tty.c_cc[VTIME] = 1;
 
-    if (tcsetattr(fd_, TCSANOW, &tty) != 0) {
-        ::close(fd_);
-        fd_ = -1;
-        return false;
-    }
-
+    if (tcsetattr(fd_, TCSANOW, &tty) != 0) { ::close(fd_); fd_ = -1; return false; }
     return true;
 }
 
 void SerialDriver::close() {
-    if (fd_ >= 0) {
-        ::close(fd_);
-        fd_ = -1;
-    }
+    if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
 }
 
-bool SerialDriver::sendCommand(float linear_mm_s, float steering_deg) {
+bool SerialDriver::sendCmdVel(float linear_x, float angular_z) {
     if (fd_ < 0) return false;
 
-    char buf[64];
-    // Định dạng: "V<speed_mm_s> S<steering_deg>\n"
-    // CẦN ĐỒNG BỘ với parser phía STM32
-    int len = snprintf(buf, sizeof(buf), "V%.1f S%.1f\n", linear_mm_s, steering_deg);
+    uint8_t frame[13];
+    frame[0] = COMM_HDR1;
+    frame[1] = COMM_HDR2;
+    frame[2] = CMD_SET_VEL;
+    frame[3] = SET_VEL_DATA_LEN;
 
-    ssize_t written = write(fd_, buf, len);
-    return written == len;
+    memcpy(&frame[4], &linear_x,  4);
+    memcpy(&frame[8], &angular_z, 4);
+
+    frame[12] = calcCRC(frame[2], frame[3], &frame[4], SET_VEL_DATA_LEN);
+
+    ssize_t written = write(fd_, frame, sizeof(frame));
+    return written == static_cast<ssize_t>(sizeof(frame));
 }
 
 bool SerialDriver::readOdom(OdomData& data) {
     if (fd_ < 0) return false;
 
-    char buf[64] = {};
-    ssize_t n = read(fd_, buf, sizeof(buf) - 1);
-    if (n <= 0) return false;
+    uint8_t byte;
+    while (read(fd_, &byte, 1) == 1) {
+        switch (rx_state_) {
+            case RxState::WAIT_HDR1:
+                if (byte == COMM_HDR1) rx_state_ = RxState::WAIT_HDR2;
+                break;
 
-    // Định dạng nhận: "E<left_ticks> <right_ticks>\n"
-    int32_t l, r;
-    if (sscanf(buf, "E%d %d", &l, &r) == 2) {
-        data.left_ticks  = l;
-        data.right_ticks = r;
-        return true;
+            case RxState::WAIT_HDR2:
+                rx_state_ = (byte == COMM_HDR2) ? RxState::WAIT_CMD
+                                                 : RxState::WAIT_HDR1;
+                break;
+
+            case RxState::WAIT_CMD:
+                rx_cmd_   = byte;
+                rx_state_ = RxState::WAIT_LEN;
+                break;
+
+            case RxState::WAIT_LEN:
+                rx_len_   = byte;
+                rx_count_ = 0;
+                rx_buf_.fill(0);
+                if (rx_cmd_ == CMD_ODOM && rx_len_ == ODOM_DATA_LEN) {
+                    rx_state_ = RxState::READ_DATA;
+                } else {
+                    rx_state_ = RxState::WAIT_HDR1;
+                }
+                break;
+
+            case RxState::READ_DATA:
+                rx_buf_[rx_count_++] = byte;
+                if (rx_count_ >= rx_len_) {
+                    rx_state_ = RxState::READ_CRC;
+                }
+                break;
+
+            case RxState::READ_CRC: {
+                uint8_t expected = calcCRC(rx_cmd_, rx_len_,
+                                           rx_buf_.data(), rx_len_);
+                rx_state_ = RxState::WAIT_HDR1;
+
+                if (byte != expected) break;
+
+                memcpy(&data.left_ticks,   &rx_buf_[0], 4);
+                memcpy(&data.right_ticks,  &rx_buf_[4], 4);
+                memcpy(&data.steering_pos, &rx_buf_[8], 2);
+                return true;
+            }
+        }
     }
     return false;
+}
+
+uint8_t SerialDriver::calcCRC(uint8_t cmd, uint8_t len,
+                               const uint8_t* data, uint8_t data_len) {
+    uint8_t crc = cmd ^ len;
+    for (uint8_t i = 0; i < data_len; i++) {
+        crc ^= data[i];
+    }
+    return crc;
 }
 
 speed_t SerialDriver::toBaudRate(int baud) {

@@ -3,7 +3,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
-#include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
 
@@ -17,77 +16,62 @@ namespace amr_hardware {
 class SerialDriverNode : public rclcpp::Node {
 public:
     SerialDriverNode() : Node("serial_driver_node") {
-        // ─── Parameters ─────────────────────────────────────────
-        // CẦN ĐIỀU CHỈNH các thông số này theo phần cứng thực tế
-        this->declare_parameter("serial_port",    "/dev/ttyUSB0");
-        this->declare_parameter("baud_rate",      115200);
-        this->declare_parameter("wheel_radius",   0.10);     // mét
-        this->declare_parameter("wheel_base",     0.21);     // mét
-        this->declare_parameter("encoder_ppr",    11);       // pulses per revolution (motor shaft)
-        this->declare_parameter("gear_ratio",     90.0);     // tỉ số truyền JGB37-520
+
+        this->declare_parameter("serial_port",    "/dev/stm32");
+        this->declare_parameter("baud_rate",       115200);
+        this->declare_parameter("wheel_radius",    0.10);
+        this->declare_parameter("wheel_base",      0.21);
+        this->declare_parameter("encoder_ppr",     11.0);
+        this->declare_parameter("gear_ratio",      90.0);
         this->declare_parameter("publish_rate_hz", 20.0);
 
-        port_  = this->get_parameter("serial_port").as_string();
-        baud_  = this->get_parameter("baud_rate").as_int();
+        port_         = this->get_parameter("serial_port").as_string();
+        baud_         = this->get_parameter("baud_rate").as_int();
         wheel_radius_ = this->get_parameter("wheel_radius").as_double();
         wheel_base_   = this->get_parameter("wheel_base").as_double();
-        double ppr       = this->get_parameter("encoder_ppr").as_double();
-        double gear      = this->get_parameter("gear_ratio").as_double();
-        ticks_per_rev_   = ppr * gear;  // encoder ticks mỗi vòng bánh
-        double hz        = this->get_parameter("publish_rate_hz").as_double();
+        double ppr    = this->get_parameter("encoder_ppr").as_double();
+        double gear   = this->get_parameter("gear_ratio").as_double();
+        ticks_per_rev_ = ppr * gear;
+        double hz     = this->get_parameter("publish_rate_hz").as_double();
 
-        // ─── Serial ─────────────────────────────────────────────
         if (!driver_.open(port_, baud_)) {
             RCLCPP_ERROR(this->get_logger(),
-                "Không mở được serial port: %s — kiểm tra /dev/ttyUSB*", port_.c_str());
+                "Không mở được port %s — cắm STM32 và kiểm tra ls /dev/ttyACM*",
+                port_.c_str());
         } else {
-            RCLCPP_INFO(this->get_logger(), "Serial port mở thành công: %s @ %d", port_.c_str(), baud_);
+            RCLCPP_INFO(this->get_logger(),
+                "Serial OK: %s @ %d baud", port_.c_str(), baud_);
         }
 
-        // ─── Publishers / Subscribers ───────────────────────────
-        odom_pub_     = this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
-        cmd_vel_sub_  = this->create_subscription<geometry_msgs::msg::Twist>(
+        odom_pub_    = this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+        cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10,
             std::bind(&SerialDriverNode::cmdVelCallback, this, std::placeholders::_1));
-        steering_sub_ = this->create_subscription<std_msgs::msg::Float32>(
-            "/steering_angle", 10,
-            std::bind(&SerialDriverNode::steeringCallback, this, std::placeholders::_1));
 
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-        // ─── Timer đọc encoder và publish odom ──────────────────
         auto period = std::chrono::duration<double>(1.0 / hz);
         timer_ = this->create_wall_timer(
             std::chrono::duration_cast<std::chrono::nanoseconds>(period),
             std::bind(&SerialDriverNode::timerCallback, this));
 
         last_time_ = this->now();
+        RCLCPP_INFO(this->get_logger(), "serial_driver_node khởi động xong.");
     }
 
 private:
     void cmdVelCallback(const geometry_msgs::msg::Twist& msg) {
-        // Chuyển linear.x (m/s) sang mm/s cho STM32
-        float linear_mm_s = static_cast<float>(msg.linear.x * 1000.0);
-
-        // angular.z → góc lái được tính bởi amr_control node
-        // ở đây chỉ forward command, steering_angle_ được set qua topic riêng
-        driver_.sendCommand(linear_mm_s, steering_angle_);
-        // Chuỗi điều khiển phần cứng (firmware STM32 cần implement):
-        //   Motor : STM32 → I2C → Hiwonder 4-Ch Encoder Motor Driver → JGB37-520
-        //   Servo : STM32 USART (TTL) → Hiwonder TTL Bus Servo Debugging Board → HTS-20H
-        // Tra cứu I2C register map (motor driver) và servo bus protocol (TTL board) trong
-        // tài liệu Hiwonder trước khi viết firmware.
-    }
-
-    void steeringCallback(const std_msgs::msg::Float32& msg) {
-        steering_angle_ = msg.data;
+        if (!driver_.sendCmdVel(
+                static_cast<float>(msg.linear.x),
+                static_cast<float>(msg.angular.z))) {
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "Gửi cmd_vel thất bại — kiểm tra serial port");
+        }
     }
 
     void timerCallback() {
-        OdomData odom_data;
-        if (!driver_.readOdom(odom_data)) {
-            return;
-        }
+        OdomData od;
+        if (!driver_.readOdom(od)) return;
 
         auto now = this->now();
         double dt = (now - last_time_).seconds();
@@ -95,76 +79,63 @@ private:
 
         if (dt <= 0.0 || dt > 1.0) return;
 
-        // Tính delta distance từ encoder ticks
-        double meters_per_tick = (2.0 * M_PI * wheel_radius_) / ticks_per_rev_;
-        double dl = (odom_data.left_ticks  - prev_left_ticks_)  * meters_per_tick;
-        double dr = (odom_data.right_ticks - prev_right_ticks_) * meters_per_tick;
-        prev_left_ticks_  = odom_data.left_ticks;
-        prev_right_ticks_ = odom_data.right_ticks;
+        double m_per_tick = (2.0 * M_PI * wheel_radius_) / ticks_per_rev_;
+        double dl = (od.left_ticks  - prev_left_)  * m_per_tick;
+        double dr = (od.right_ticks - prev_right_) * m_per_tick;
+        prev_left_  = od.left_ticks;
+        prev_right_ = od.right_ticks;
 
-        // Differential drive odometry (approximation cho Ackermann)
-        double d_center = (dl + dr) / 2.0;
-        double d_theta  = (dr - dl) / wheel_base_;
+        double d      = (dl + dr) / 2.0;
+        double dtheta = (dr - dl) / wheel_base_;
 
-        x_   += d_center * std::cos(theta_ + d_theta / 2.0);
-        y_   += d_center * std::sin(theta_ + d_theta / 2.0);
-        theta_ += d_theta;
+        x_     += d * std::cos(theta_ + dtheta / 2.0);
+        y_     += d * std::sin(theta_ + dtheta / 2.0);
+        theta_ += dtheta;
 
-        double vx = d_center / dt;
-        double vth = d_theta / dt;
+        double vx  = d / dt;
+        double vth = dtheta / dt;
 
-        // ─── Publish Odometry ────────────────────────────────
         tf2::Quaternion q;
         q.setRPY(0, 0, theta_);
 
-        nav_msgs::msg::Odometry odom_msg;
-        odom_msg.header.stamp    = now;
-        odom_msg.header.frame_id = "odom";
-        odom_msg.child_frame_id  = "base_link";
-        odom_msg.pose.pose.position.x  = x_;
-        odom_msg.pose.pose.position.y  = y_;
-        odom_msg.pose.pose.orientation.x = q.x();
-        odom_msg.pose.pose.orientation.y = q.y();
-        odom_msg.pose.pose.orientation.z = q.z();
-        odom_msg.pose.pose.orientation.w = q.w();
-        odom_msg.twist.twist.linear.x  = vx;
-        odom_msg.twist.twist.angular.z = vth;
-        odom_pub_->publish(odom_msg);
+        nav_msgs::msg::Odometry odom;
+        odom.header.stamp            = now;
+        odom.header.frame_id         = "odom";
+        odom.child_frame_id          = "base_link";
+        odom.pose.pose.position.x    = x_;
+        odom.pose.pose.position.y    = y_;
+        odom.pose.pose.orientation.x = q.x();
+        odom.pose.pose.orientation.y = q.y();
+        odom.pose.pose.orientation.z = q.z();
+        odom.pose.pose.orientation.w = q.w();
+        odom.twist.twist.linear.x    = vx;
+        odom.twist.twist.angular.z   = vth;
+        odom_pub_->publish(odom);
 
-        // ─── Broadcast TF odom → base_link ───────────────────
-        geometry_msgs::msg::TransformStamped tf_msg;
-        tf_msg.header.stamp    = now;
-        tf_msg.header.frame_id = "odom";
-        tf_msg.child_frame_id  = "base_link";
-        tf_msg.transform.translation.x = x_;
-        tf_msg.transform.translation.y = y_;
-        tf_msg.transform.rotation.x = q.x();
-        tf_msg.transform.rotation.y = q.y();
-        tf_msg.transform.rotation.z = q.z();
-        tf_msg.transform.rotation.w = q.w();
-        tf_broadcaster_->sendTransform(tf_msg);
+        geometry_msgs::msg::TransformStamped tf;
+        tf.header.stamp            = now;
+        tf.header.frame_id         = "odom";
+        tf.child_frame_id          = "base_link";
+        tf.transform.translation.x = x_;
+        tf.transform.translation.y = y_;
+        tf.transform.rotation      = odom.pose.pose.orientation;
+        tf_broadcaster_->sendTransform(tf);
     }
 
-    // Serial
     SerialDriver driver_;
     std::string  port_;
     int          baud_;
 
-    // Robot params
-    double wheel_radius_   = 0.10;
-    double wheel_base_     = 0.21;
-    double ticks_per_rev_  = 990.0;  // 11 PPR × 90 gear ratio
+    double  wheel_radius_  = 0.10;
+    double  wheel_base_    = 0.21;
+    double  ticks_per_rev_ = 990.0;
 
-    // State
-    double x_ = 0.0, y_ = 0.0, theta_ = 0.0;
-    int32_t prev_left_ticks_ = 0, prev_right_ticks_ = 0;
-    float steering_angle_ = 0.0f;
+    double  x_ = 0.0, y_ = 0.0, theta_ = 0.0;
+    int32_t prev_left_ = 0, prev_right_ = 0;
     rclcpp::Time last_time_;
 
-    // ROS interfaces
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr steering_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 };
