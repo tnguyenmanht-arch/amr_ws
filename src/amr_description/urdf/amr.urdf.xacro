@@ -57,10 +57,10 @@
     </collision>
     <inertial>
       <mass value="2.0"/>
-      <!-- Inertia tính cho hộp đặc m=2kg, L=0.304 W=0.268 H=0.084 -->
-      <inertia ixx="0.0132" ixy="0" ixz="0"
-               iyy="0.0166" iyz="0"
-               izz="0.0274"/>
+      <!-- Hộp đặc m=2kg, L=0.304 W=0.158 H=0.084: I=1/12·m·(a²+b²) -->
+      <inertia ixx="0.005337" ixy="0" ixz="0"
+               iyy="0.016579" iyz="0"
+               izz="0.019563"/>
     </inertial>
   </link>
 
@@ -82,9 +82,10 @@
       </collision>
       <inertial>
         <mass value="0.15"/>
-        <inertia ixx="0.0004" ixy="0.0" ixz="0.0"
-                 iyy="0.0004" iyz="0.0"
-                 izz="0.00075"/>
+        <!-- Trụ đặc r=0.05 h=0.029, trục quay Y: iyy=½mr², ixx=izz=1/12·m·(3r²+h²) -->
+        <inertia ixx="0.0001043" ixy="0.0" ixz="0.0"
+                 iyy="0.0001875" iyz="0.0"
+                 izz="0.0001043"/>
       </inertial>
     </link>
 
