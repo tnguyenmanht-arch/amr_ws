@@ -9,15 +9,18 @@
 
   <!-- ─── Tham số kích thước (đơn vị: mét) ─────────────────────── -->
   <!-- CẦN ĐIỀU CHỈNH theo kích thước khung xe thực tế -->
-  <xacro:property name="base_length"   value="0.304"/> <!-- chiều dài -->
+  <xacro:property name="base_length"   value="0.297"/> <!-- chiều dài chassis (không tính bánh) -->
   <xacro:property name="base_width"    value="0.158"/> <!-- chiều rộng khung chassis thật (không gồm bánh) -->
-  <xacro:property name="base_height"   value="0.084"/> <!-- chiều cao chassis -->
+  <xacro:property name="base_height"   value="0.062"/> <!-- chiều cao chassis (không tính bánh) -->
+  <xacro:property name="ground_clearance" value="0.022"/> <!-- mặt đất → mặt dưới khung gầm -->
   <xacro:property name="wheel_radius"  value="0.05"/>  <!-- bán kính bánh (đường kính 100mm → r=50mm) -->
   <xacro:property name="wheel_width"   value="0.029"/> <!-- bề rộng bánh -->
   <xacro:property name="wheelbase"     value="0.21"/>  <!-- khoảng cách trục trước-sau -->
   <xacro:property name="track_width"   value="0.217"/> <!-- khoảng cách 2 tâm bánh ngang (tâm→tâm) -->
   <!-- Khoảng trống lọt lòng giữa 2 mặt trong của 2 bánh (dẫn xuất) = 0.188m -->
   <xacro:property name="wheel_inner_gap" value="${track_width - wheel_width}"/>
+  <!-- z của base_link so với base_footprint = ground_clearance + chassis_height/2 = 0.053m -->
+  <xacro:property name="base_link_z" value="${ground_clearance + base_height/2}"/>
 
   <!-- ─── Materials ─────────────────────────────────────────────── -->
   <material name="dark_grey">
@@ -39,7 +42,7 @@
   <joint name="base_footprint_joint" type="fixed">
     <parent link="base_footprint"/>
     <child  link="base_link"/>
-    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+    <origin xyz="0 0 ${base_link_z}" rpy="0 0 0"/>
   </joint>
 
   <!-- ─── Base link (chassis) ───────────────────────────────────── -->
@@ -57,10 +60,10 @@
     </collision>
     <inertial>
       <mass value="2.0"/>
-      <!-- Hộp đặc m=2kg, L=0.304 W=0.158 H=0.084: I=1/12·m·(a²+b²) -->
-      <inertia ixx="0.005337" ixy="0" ixz="0"
-               iyy="0.016579" iyz="0"
-               izz="0.019563"/>
+      <!-- Hộp đặc m=2kg, L=0.297 W=0.158 H=0.062: I=1/12·m·(a²+b²) -->
+      <inertia ixx="0.004801" ixy="0" ixz="0"
+               iyy="0.015342" iyz="0"
+               izz="0.018862"/>
     </inertial>
   </link>
 
@@ -92,7 +95,8 @@
     <joint name="${name}_wheel_joint" type="continuous">
       <parent link="base_link"/>
       <child  link="${name}_wheel"/>
-      <origin xyz="${x} ${y} 0" rpy="0 0 0"/>
+      <!-- z = wheel_radius - base_link_z = 0.05 - 0.053 = -0.003m (tâm bánh hơi thấp hơn tâm chassis) -->
+      <origin xyz="${x} ${y} ${wheel_radius - base_link_z}" rpy="0 0 0"/>
       <axis xyz="0 1 0"/>
     </joint>
   </xacro:macro>
