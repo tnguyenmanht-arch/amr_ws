@@ -4,7 +4,7 @@ project(amr_description)
 find_package(ament_cmake REQUIRED)
 find_package(xacro REQUIRED)
 
-install(DIRECTORY urdf meshes launch
+install(DIRECTORY urdf meshes launch config
   DESTINATION share/${PROJECT_NAME}
 )
 

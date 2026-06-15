@@ -1,0 +1,48 @@
+# ros_gz_bridge — cấu hình topic bridge giữa ROS2 Humble ↔ Gazebo Fortress
+# Dùng với: ros2 run ros_gz_bridge parameter_bridge --ros-args -p config_file:=<path>
+# Hoặc Node(package='ros_gz_bridge', executable='parameter_bridge',
+#            parameters=[{'config_file': <path>}])
+
+# /cmd_vel: ROS → GZ (gửi lệnh điều khiển vào Gazebo)
+- ros_topic_name: "/cmd_vel"
+  gz_topic_name: "/cmd_vel"
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "ignition.msgs.Twist"
+  direction: ROS_TO_GZ
+
+# /odom: GZ → ROS (odometry từ ackermann_steering_controller, thường là ROS topic trực tiếp)
+- ros_topic_name: "/odom"
+  gz_topic_name: "/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "ignition.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+# /scan: GZ → ROS (LiDAR data từ Gazebo sensor — cần thêm sensor plugin vào lidar.xacro)
+- ros_topic_name: "/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "ignition.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+# /clock: GZ → ROS (đồng bộ simulation time, cần use_sim_time=true)
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "ignition.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# /joint_states: thường được publish trực tiếp bởi joint_state_broadcaster (ROS topic)
+# Bridge này là dự phòng nếu cần đọc joint state từ Gazebo trực tiếp
+- ros_topic_name: "/joint_states"
+  gz_topic_name: "/world/empty/model/amr_ackermann/joint_state"
+  ros_type_name: "sensor_msgs/msg/JointState"
+  gz_type_name: "ignition.msgs.Model"
+  direction: GZ_TO_ROS
+
+# /tf: thường được publish bởi robot_state_publisher + ros2_control (ROS topic)
+# Bridge này dự phòng cho TF từ Gazebo model pose
+- ros_topic_name: "/tf"
+  gz_topic_name: "/tf"
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "ignition.msgs.Pose_V"
+  direction: GZ_TO_ROS

@@ -1,0 +1,50 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    ackermann_steering_controller:
+      type: ackermann_steering_controller/AckermannSteeringController
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+# ─── AckermannSteeringController ──────────────────────────────────
+# Tham khảo: https://control.ros.org/humble/doc/ros2_controllers/
+#             ackermann_steering_controller/
+# LƯU Ý: tên param chính xác phụ thuộc version ros2_controllers đã cài.
+#         Nếu lỗi "unknown parameter", kiểm tra bằng:
+#         ros2 param list /ackermann_steering_controller
+ackermann_steering_controller:
+  ros__parameters:
+    # Joints lái (revolute, trục Z)
+    steering_joints:
+      - front_right_steer_joint
+      - front_left_steer_joint
+
+    # Joints dẫn động (continuous, trục Y)
+    traction_joints:
+      - rear_right_wheel_joint
+      - rear_left_wheel_joint
+
+    # Thông số hình học xe (đơn vị: mét, radian)
+    wheelbase: 0.210        # khoảng cách trục trước-sau
+    track: 0.217            # khoảng cách 2 tâm bánh (tâm→tâm)
+    wheel_radius: 0.05      # bán kính bánh dẫn động
+
+    front_steering: true    # lái phía trước (Ackermann chuẩn)
+    open_loop: false        # dùng encoder feedback
+
+    # Giới hạn velocity
+    linear:
+      x:
+        has_velocity_limits: true
+        max_velocity: 2.0   # m/s — CẦN ĐIỀU CHỈNH theo thực tế
+        min_velocity: -1.0
+    angular:
+      z:
+        has_velocity_limits: true
+        max_velocity: 1.0   # rad/s
+
+# ─── JointStateBroadcaster ────────────────────────────────────────
+joint_state_broadcaster:
+  ros__parameters: {}

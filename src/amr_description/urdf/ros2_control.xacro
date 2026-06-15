@@ -1,8 +1,70 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ─── ros2_control hardware interface ──────────────────────── -->
-  <!-- TODO Giai đoạn 5: khai báo <ros2_control> hardware interface -->
-  <!-- Tham khảo: https://control.ros.org/humble/               -->
+  <!-- ─── ros2_control — Ignition Fortress hardware interface ─────── -->
+  <ros2_control name="IgnitionSystem" type="system">
+    <hardware>
+      <!-- Plugin cho Gazebo Fortress (Ignition) -->
+      <plugin>ign_ros2_control/IgnitionSystem</plugin>
+    </hardware>
+
+    <!-- Bánh sau trái — velocity command (dẫn động) -->
+    <joint name="rear_left_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max">10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Bánh sau phải — velocity command (dẫn động) -->
+    <joint name="rear_right_wheel_joint">
+      <command_interface name="velocity">
+        <param name="min">-10</param>
+        <param name="max">10</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Khớp lái trước trái — position command -->
+    <joint name="front_left_steer_joint">
+      <command_interface name="position">
+        <param name="min">-0.5236</param>
+        <param name="max">0.5236</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Khớp lái trước phải — position command -->
+    <joint name="front_right_steer_joint">
+      <command_interface name="position">
+        <param name="min">-0.5236</param>
+        <param name="max">0.5236</param>
+      </command_interface>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+
+    <!-- Bánh trước — passive (không command, chỉ đọc state) -->
+    <joint name="front_left_wheel_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+    <joint name="front_right_wheel_joint">
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+  <!-- Plugin ign_ros2_control tải vào Gazebo Fortress -->
+  <gazebo>
+    <plugin filename="ign_ros2_control-system"
+            name="ign_ros2_control::IgnRos2ControlPlugin">
+      <parameters>$(find amr_description)/config/controller_gz_sim.yaml</parameters>
+    </plugin>
+  </gazebo>
 
 </robot>
