@@ -9,41 +9,40 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
 # ─── AckermannSteeringController ──────────────────────────────────
-# Tham khảo: https://control.ros.org/humble/doc/ros2_controllers/
-#             ackermann_steering_controller/
-# LƯU Ý: tên param chính xác phụ thuộc version ros2_controllers đã cài.
-#         Nếu lỗi "unknown parameter", kiểm tra bằng:
-#         ros2 param list /ackermann_steering_controller
+# Tên param lấy từ steering_controllers_library_parameters.hpp
+# và ackermann_steering_controller_parameters.hpp (build Humble)
 ackermann_steering_controller:
   ros__parameters:
-    # Joints lái (revolute, trục Z)
-    steering_joints_names:
-      - front_right_steer_joint
-      - front_left_steer_joint
 
-    # Joints dẫn động (continuous, trục Y)
+    # ── string_array REQUIRED ──────────────────────────────────────
+    # Joints bánh sau dẫn động (continuous, axis Y)
     rear_wheels_names:
       - rear_right_wheel_joint
       - rear_left_wheel_joint
 
-    # Thông số hình học xe (đơn vị: mét, radian)
-    wheelbase: 0.210        # khoảng cách trục trước-sau
-    track: 0.217            # khoảng cách 2 tâm bánh (tâm→tâm)
-    wheel_radius: 0.05      # bán kính bánh dẫn động
+    # Joints bánh trước lái (revolute, axis Z)
+    front_wheels_names:
+      - front_right_steer_joint
+      - front_left_steer_joint
 
-    front_steering: true    # lái phía trước (Ackermann chuẩn)
-    open_loop: false        # dùng encoder feedback
+    # ── double REQUIRED (tất cả phải > 0, validation gt(0.0)) ─────
+    front_wheel_track: 0.217    # khoảng cách tâm-tâm bánh trước (m)
+    rear_wheel_track:  0.217    # khoảng cách tâm-tâm bánh sau (m)
+    wheelbase:         0.210    # khoảng cách trục trước-sau (m)
+    front_wheels_radius: 0.05   # bán kính bánh trước (m)
+    rear_wheels_radius:  0.05   # bán kính bánh sau (m)
 
-    # Giới hạn velocity
-    linear:
-      x:
-        has_velocity_limits: true
-        max_velocity: 2.0   # m/s — CẦN ĐIỀU CHỈNH theo thực tế
-        min_velocity: -1.0
-    angular:
-      z:
-        has_velocity_limits: true
-        max_velocity: 1.0   # rad/s
+    # ── bool / int tùy chọn ───────────────────────────────────────
+    front_steering: true                  # lái phía trước (Ackermann chuẩn)
+    open_loop: false                      # dùng encoder feedback
+    position_feedback: true               # dùng position state interface
+    velocity_rolling_window_size: 10      # cửa sổ lọc tốc độ
+    reduce_wheel_speed_until_steering_reached: false
+
+    # ── TF / odom ─────────────────────────────────────────────────
+    base_frame_id: base_link
+    odom_frame_id: odom
+    enable_odom_tf: true
 
 # ─── JointStateBroadcaster ────────────────────────────────────────
 joint_state_broadcaster:
