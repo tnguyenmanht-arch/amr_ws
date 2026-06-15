@@ -12,13 +12,14 @@ Thứ tự khởi động:
 import os
 import xacro
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_prefix, get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     RegisterEventHandler,
+    SetEnvironmentVariable,
     TimerAction,
 )
 from launch.event_handlers import OnProcessExit
@@ -129,6 +130,10 @@ def generate_launch_description():
     return LaunchDescription([
         world_arg,
         gz_headless_arg,
+        SetEnvironmentVariable(
+            'IGN_GAZEBO_SYSTEM_PLUGIN_PATH',
+            os.path.join(get_package_prefix('ign_ros2_control'), 'lib')
+        ),
         robot_state_publisher,
         gazebo,
         spawn_robot,
