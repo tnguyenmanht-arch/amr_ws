@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ─── Camera frame (IMX-219 CSI) ───────────────────────────── -->
+  <!-- CẦN ĐIỀU CHỈNH vị trí gắn camera IMX-219 -->
+  <link name="camera_frame">
+    <visual>
+      <geometry>
+        <box size="0.025 0.025 0.020"/>
+      </geometry>
+      <material name="light_grey"/>
+    </visual>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child  link="camera_frame"/>
+    <!-- camera thường gắn phía trước, hướng xuống hoặc thẳng -->
+    <origin xyz="0.12 0 0.05" rpy="0 0.3 0"/>
+  </joint>
+
+  <!-- Frame optical (ROS convention: z-forward, x-right, y-down) -->
+  <link name="camera_optical_frame"/>
+
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_frame"/>
+    <child  link="camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+  </joint>
+
+</robot>

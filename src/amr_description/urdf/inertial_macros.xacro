@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Macro inertia hộp đặc: ixx=1/12m(w²+h²), iyy=1/12m(l²+h²), izz=1/12m(l²+w²) -->
+  <xacro:macro name="inertial_box" params="mass l w h">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${(1/12.0)*mass*(w*w + h*h)}" ixy="0" ixz="0"
+               iyy="${(1/12.0)*mass*(l*l + h*h)}" iyz="0"
+               izz="${(1/12.0)*mass*(l*l + w*w)}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- Macro inertia trụ đặc, trục quay Y: iyy=½mr², ixx=izz=1/12m(3r²+h²) -->
+  <xacro:macro name="inertial_cylinder" params="mass r h">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia ixx="${(1/12.0)*mass*(3*r*r + h*h)}" ixy="0" ixz="0"
+               iyy="${0.5*mass*r*r}"                 iyz="0"
+               izz="${(1/12.0)*mass*(3*r*r + h*h)}"/>
+    </inertial>
+  </xacro:macro>
+
+</robot>
