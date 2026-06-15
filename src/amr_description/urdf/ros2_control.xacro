@@ -62,7 +62,7 @@
   <!-- Plugin ign_ros2_control tải vào Gazebo Fortress -->
   <gazebo>
     <plugin filename="ign_ros2_control-system"
-            name="ign_ros2_control::IgnRos2ControlPlugin">
+            name="ign_ros2_control::IgnitionROS2ControlPlugin">
       <parameters>$(find amr_description)/config/controller_gz_sim.yaml</parameters>
     </plugin>
   </gazebo>
