@@ -17,12 +17,12 @@ controller_manager:
 ackermann_steering_controller:
   ros__parameters:
     # Joints lái (revolute, trục Z)
-    steering_joints:
+    steering_joints_names:
       - front_right_steer_joint
       - front_left_steer_joint
 
     # Joints dẫn động (continuous, trục Y)
-    traction_joints:
+    rear_wheels_names:
       - rear_right_wheel_joint
       - rear_left_wheel_joint
 
