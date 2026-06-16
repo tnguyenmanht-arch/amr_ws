@@ -1,6 +1,7 @@
 controller_manager:
   ros__parameters:
     update_rate: 100  # Hz
+    use_sim_time: true
 
     ackermann_steering_controller:
       type: ackermann_steering_controller/AckermannSteeringController
@@ -9,35 +10,34 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
 # ─── AckermannSteeringController ──────────────────────────────────
-# Tên param lấy từ steering_controllers_library_parameters.hpp
-# và ackermann_steering_controller_parameters.hpp (build Humble)
+# Tên param theo steering_controllers_library (Humble) — KHỚP với
+# repo bạn bè đã chạy được. Các param string_array PHẢI viết dạng
+# YAML list (mỗi phần tử một dòng, có dấu "-"), và thứ tự RIGHT trước,
+# LEFT sau theo quy ước của controller.
 ackermann_steering_controller:
   ros__parameters:
 
     # ── string_array REQUIRED ──────────────────────────────────────
-    # Joints bánh sau dẫn động (continuous, axis Y)
-    rear_wheels_names:
+    # Bánh sau dẫn động (traction) — right trước, left sau
+    traction_joints_names:
       - rear_right_wheel_joint
       - rear_left_wheel_joint
 
-    # Joints bánh trước lái (revolute, axis Z)
-    front_wheels_names:
+    # Khớp lái trước (steering) — right trước, left sau
+    steering_joints_names:
       - front_right_steer_joint
       - front_left_steer_joint
 
-    # ── double REQUIRED (tất cả phải > 0, validation gt(0.0)) ─────
-    front_wheel_track: 0.217    # khoảng cách tâm-tâm bánh trước (m)
-    rear_wheel_track:  0.217    # khoảng cách tâm-tâm bánh sau (m)
-    wheelbase:         0.210    # khoảng cách trục trước-sau (m)
-    front_wheels_radius: 0.05   # bán kính bánh trước (m)
-    rear_wheels_radius:  0.05   # bán kính bánh sau (m)
+    # ── double REQUIRED (đều phải > 0) ────────────────────────────
+    wheelbase:              0.210   # khoảng cách trục trước-sau (m)
+    traction_track_width:   0.217   # tâm-tâm 2 bánh sau (m)
+    steering_track_width:   0.217   # tâm-tâm 2 bánh lái trước (m)
+    traction_wheels_radius: 0.05    # bán kính bánh dẫn động (m)
 
-    # ── bool / int tùy chọn ───────────────────────────────────────
-    front_steering: true                  # lái phía trước (Ackermann chuẩn)
-    open_loop: false                      # dùng encoder feedback
-    position_feedback: true               # dùng position state interface
-    velocity_rolling_window_size: 10      # cửa sổ lọc tốc độ
-    reduce_wheel_speed_until_steering_reached: false
+    # ── tùy chọn ──────────────────────────────────────────────────
+    open_loop: false          # dùng velocity thực tế từ Gazebo
+    position_feedback: false  # đọc velocity state interface
+    reference_timeout: 0.5
 
     # ── TF / odom ─────────────────────────────────────────────────
     base_frame_id: base_link
