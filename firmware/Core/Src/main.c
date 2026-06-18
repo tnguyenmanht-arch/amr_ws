@@ -24,6 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>          /* snprintf cho debug output */
 #include "motor_driver.h"
 #include "servo_buslinker.h"
 #include "jetson_comm.h"
@@ -194,6 +195,14 @@ static void on_cmd_vel(float linear, float angular)
     int8_t spd_l, spd_r;
     /* Quy đổi cmd_vel -> tốc độ 2 bánh + góc lái; lưu góc lái để gửi odom */
     CALC_Ackermann(linear, angular, &spd_l, &spd_r, &current_steer);
+
+    /* ===== DEBUG — xác nhận callback chạy & giá trị quy đổi. Xóa sau khi test. */
+    char dbg[64];
+    snprintf(dbg, sizeof(dbg), "DBG:cmd=%.2f,%.2f spd=%d steer=%.1f\r\n",
+             (double)linear, (double)angular, (int)spd_l, (double)current_steer);
+    APP_Comm_DebugPrint(dbg);
+    /* ===== HẾT DEBUG ===== */
+
     DRV_Motor_SetSpeed(spd_l, spd_r);
     DRV_Servo_SetAngle(current_steer);
 }

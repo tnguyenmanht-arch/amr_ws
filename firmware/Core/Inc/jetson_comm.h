@@ -58,6 +58,13 @@ void APP_Comm_Parse(void);
  */
 void APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg);
 
+/**
+ * @brief  Gửi chuỗi thô lên Jetson qua UART2 (an toàn với RX interrupt).
+ *         Dùng cho debug; không đụng HAL lock nên không làm chết RX.
+ * @param  str  Chuỗi kết thúc '\0' (tự thêm xuống dòng nếu cần trong nội dung).
+ */
+void APP_Comm_DebugPrint(const char *str);
+
 #ifdef __cplusplus
 }
 #endif
