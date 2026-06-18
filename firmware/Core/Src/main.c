@@ -27,6 +27,7 @@
 #include "motor_driver.h"
 #include "servo_buslinker.h"
 #include "jetson_comm.h"
+#include "ackermann.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,9 +37,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* Hệ số chuyển đổi cmd_vel → lệnh phần cứng — CẦN TUNE thực nghiệm */
-#define MAX_LINEAR_X_MS     0.5f    /* Vận tốc thẳng tối đa (m/s) ứng với speed=100 */
-#define K_ANGULAR_TO_DEG    30.0f   /* Hệ số angular_z (rad/s) → góc lái servo (°) */
+/* Hằng số chuyển đổi cmd_vel nằm trong ackermann.c (CALC_Ackermann) */
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,13 +48,14 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+static uint32_t last_odom_ms = 0;     /* Mốc thời gian gửi odom gần nhất */
+static float    current_steer = 0.0f; /* Góc lái hiện tại (độ) để gửi lên Jetson */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-static void on_cmd_vel(float linear_x, float angular_z);
+static void on_cmd_vel(float linear, float angular);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -96,13 +96,10 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_Delay(500);  // Chỉ 500ms — đủ để boot, không trigger timeout
-
-  HAL_StatusTypeDef init_ret = DRV_Motor_Init();
-  volatile HAL_StatusTypeDef dbg_init = init_ret;  // breakpoint ở đây
-
-  DRV_Servo_Init();
-  APP_Comm_Init(on_cmd_vel);
+  HAL_Delay(500);          // Đủ để các module boot, không trigger motor timeout
+  DRV_Motor_Init();        // Không check return — tiếp tục dù config fail
+  DRV_Servo_Init();        // Servo về vị trí trung tâm (lái thẳng)
+  APP_Comm_Init(on_cmd_vel); // Bật UART2 nhận lệnh "$VEL" từ Jetson
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -112,24 +109,21 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  // ===== TEST ENCODER — XÓA SAU KHI TEST XONG =====
-	  int32_t enc_left = 0, enc_right = 0;
+	  /* ---- Gửi odometry lên Jetson định kỳ mỗi 10ms (100 Hz) ---- */
+	  uint32_t now = HAL_GetTick();
+	  if (now - last_odom_ms >= 10U) {
+		  last_odom_ms = now;
 
-	  DRV_Motor_ResetEncoder();
-	  HAL_Delay(500);
+		  /* Đọc encoder 2 bánh */
+		  int32_t enc_l = 0, enc_r = 0;
+		  DRV_Motor_GetEncoder(&enc_l, &enc_r);
 
-	  DRV_Motor_SetSpeed(30, 30);
-	  HAL_Delay(3000);
-	  DRV_Motor_SetSpeed(0, 0);
-	  HAL_Delay(500);
+		  /* Gửi "$ODO,enc_l,enc_r,steer\n" lên Jetson */
+		  APP_Comm_SendOdom(enc_l, enc_r, current_steer);
+	  }
 
-	  DRV_Motor_GetEncoder(&enc_left, &enc_right);
-
-	  volatile int32_t dbg_left  = enc_left;   // ← đặt breakpoint ở đây
-	  volatile int32_t dbg_right = enc_right;
-
-	  HAL_Delay(3000);  // chờ rồi lặp lại
-	  // ===== HẾT TEST =====
+	  /* ---- Xử lý lệnh "$VEL" nhận từ Jetson (gọi on_cmd_vel khi đủ frame) ---- */
+	  APP_Comm_Parse();
   }
   /* USER CODE END 3 */
 }
@@ -191,24 +185,17 @@ void SystemClock_Config(void)
 /* USER CODE BEGIN 4 */
 /**
  * @brief  Callback nhận lệnh cmd_vel từ Jetson qua UART2.
- *         Được gọi tự động từ APP_Comm_Parse() khi parse đủ 1 frame hợp lệ.
- * @note   CẦN TUNE: MAX_LINEAR_X_MS và K_ANGULAR_TO_DEG theo xe thực tế.
+ *         Gọi tự động từ APP_Comm_Parse() khi parse đủ 1 lệnh "$VEL" hợp lệ.
+ * @note   Quy đổi Twist -> Ackermann nằm trong CALC_Ackermann (ackermann.c).
  *         Kiểm tra chiều quay motor và chiều lái servo trước khi chạy tự động.
  */
-static void on_cmd_vel(float linear_x, float angular_z)
+static void on_cmd_vel(float linear, float angular)
 {
-    /* Chuyển linear_x (m/s) → tốc độ motor (-100..100) */
-    float speed_f = linear_x / MAX_LINEAR_X_MS * 100.0f;
-    if (speed_f >  100.0f) speed_f =  100.0f;
-    if (speed_f < -100.0f) speed_f = -100.0f;
-
-    /* Chuyển angular_z (rad/s) → góc lái servo (độ)
-     * K_ANGULAR_TO_DEG = 30 nghĩa là: 1 rad/s → 30° lái.
-     * CẦN TUNE lại dựa trên bán kính lái thực tế và gear ratio. */
-    float angle_deg = angular_z * K_ANGULAR_TO_DEG;
-
-    DRV_Motor_SetSpeed((int8_t)speed_f, (int8_t)speed_f);
-    DRV_Servo_SetAngle(angle_deg);
+    int8_t spd_l, spd_r;
+    /* Quy đổi cmd_vel -> tốc độ 2 bánh + góc lái; lưu góc lái để gửi odom */
+    CALC_Ackermann(linear, angular, &spd_l, &spd_r, &current_steer);
+    DRV_Motor_SetSpeed(spd_l, spd_r);
+    DRV_Servo_SetAngle(current_steer);
 }
 /* USER CODE END 4 */
 

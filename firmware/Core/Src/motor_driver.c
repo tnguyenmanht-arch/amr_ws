@@ -4,33 +4,34 @@
 
 HAL_StatusTypeDef DRV_Motor_Init(void)
 {
-    HAL_StatusTypeDef ret;
-    uint8_t buf[MOTOR_NUM_CHANNELS];
+    uint8_t buf[1];
 
-    /* ---- Cài loại motor: JGB37-520R90 = 3 cho tất cả 4 kênh ----
-     * Nếu driver chỉ nhận 1 byte toàn cục, giảm tham số len xuống 1.
-     * Cần xác nhận với datasheet thực tế của board. */
+    /* ---- Bước 1: Dừng motor TRƯỚC TIÊN ----
+     * Driver có thể đang chạy với tốc độ lưu từ EEPROM của lần trước.
+     * Phải dừng ngay để xe không lao đi khi vừa cấp nguồn. */
+    DRV_Motor_SetSpeed(0, 0);
+    HAL_Delay(300);
+
+    /* ---- Bước 2: Cài loại motor JGB37-520R90 = 3 (CHỈ 1 byte) ----
+     * BÀI HỌC PHẦN CỨNG: ghi quá 1 byte vào 0x14 làm hỏng cấu hình EEPROM.
+     * KHÔNG return error nếu fail: driver có thể từ chối ghi config khi
+     * đang ở trạng thái chạy, nhưng SetSpeed vẫn hoạt động bình thường. */
     buf[0] = MOTOR_TYPE_JGB37_520R90;
-    ret = HAL_I2C_Mem_Write(&hi2c1, MOTOR_DRV_I2C_ADDR,
+    (void)HAL_I2C_Mem_Write(&hi2c1, MOTOR_DRV_I2C_ADDR,
                             REG_MOTOR_TYPE, I2C_MEMADD_SIZE_8BIT,
                             buf, 1, MOTOR_I2C_TIMEOUT_MS);
-    if (ret != HAL_OK) return ret;
-    HAL_Delay(200); /* Driver cần thời gian lưu cấu hình vào EEPROM nội */
+    HAL_Delay(200); /* Chờ driver lưu cấu hình vào EEPROM nội */
 
-    /* ---- Chiều encoder: 0 = không đảo ---- */
+    /* ---- Bước 3: Chiều encoder = 0 (không đảo) (CHỈ 1 byte) ----
+     * Tương tự 0x14: chỉ 1 byte, bỏ qua lỗi nếu có. */
     buf[0] = 0;
-    ret = HAL_I2C_Mem_Write(&hi2c1, MOTOR_DRV_I2C_ADDR,
+    (void)HAL_I2C_Mem_Write(&hi2c1, MOTOR_DRV_I2C_ADDR,
                             REG_ENCODER_POLARITY, I2C_MEMADD_SIZE_8BIT,
                             buf, 1, MOTOR_I2C_TIMEOUT_MS);
-    if (ret != HAL_OK) return ret;
     HAL_Delay(200);
 
-    /* ---- Reset encoder về 0 ---- */
-    ret = DRV_Motor_ResetEncoder();
-    if (ret != HAL_OK) return ret;
-
-    /* ---- Dừng motor an toàn ---- */
-    return DRV_Motor_SetSpeed(0, 0);
+    /* ---- Bước 4: Reset encoder về 0 ---- */
+    return DRV_Motor_ResetEncoder();
 }
 
 HAL_StatusTypeDef DRV_Motor_SetSpeed(int8_t left, int8_t right)
