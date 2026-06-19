@@ -29,21 +29,11 @@ extern "C" {
 /* Timeout I2C (ms) */
 #define MOTOR_I2C_TIMEOUT_MS        100
 
-/* ===== Debug: trạng thái I2C của lần đọc encoder gần nhất =====
- * 0=HAL_OK, 1=HAL_ERROR, 2=HAL_BUSY, 3=HAL_TIMEOUT */
+/* ===== Trạng thái I2C của lần đọc encoder gần nhất (debug, giữ lại) =====
+ * 0=OK, 1=NAK addr+W, 2=NAK reg, 3=NAK addr+R */
 extern volatile uint8_t  g_last_enc_i2c_err;
-extern volatile uint32_t g_last_enc_i2c_ec;    /* hi2c1.ErrorCode (HAL_I2C_ERROR_*) */
-extern volatile char     g_last_enc_i2c_step;  /* 'B'=bit-bang; pha lỗi trong g_last_enc_i2c_err */
-
-/* Probe chẩn đoán đọc voltage (0x00) — xem bus/read có hoạt động không */
-extern volatile uint16_t g_probe_volt;         /* mV đọc được từ reg 0x00 */
-extern volatile uint8_t  g_probe_rc;           /* 0=OK, else mã HAL khi đọc lỗi */
-void DRV_Motor_ProbeVoltage(void);
-
-/* Scan bus I2C: thiết bị nào ACK trong 0x08..0x77 */
-extern volatile uint8_t  g_i2c_scan_found;     /* địa chỉ 7-bit đầu tiên ACK, 0xFF=none */
-extern volatile uint8_t  g_i2c_scan_count;     /* số thiết bị ACK */
-void DRV_Motor_ScanBus(void);
+extern volatile uint32_t g_last_enc_i2c_ec;
+extern volatile char     g_last_enc_i2c_step;
 
 /**
  * @brief  Khởi tạo motor driver: cài motor type, encoder polarity, reset encoder.

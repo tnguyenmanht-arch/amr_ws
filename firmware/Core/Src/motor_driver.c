@@ -25,14 +25,11 @@
 #define SDA_L()     (GPIOB->BSRR = (1u << (SDA_BIT + 16u)))
 #define SDA_READ()  ((GPIOB->IDR >> SDA_BIT) & 1u)
 
-/* ===== Debug ===== */
+/* ===== Trạng thái lỗi I2C đọc encoder (giữ lại; ENCERR print có thể bật ở main.c) =====
+ * g_last_enc_i2c_err: 0=OK, 1=NAK addr+W, 2=NAK reg, 3=NAK addr+R */
 volatile uint8_t  g_last_enc_i2c_err  = 0;
 volatile uint32_t g_last_enc_i2c_ec   = 0;
 volatile char     g_last_enc_i2c_step = 'B';
-volatile uint16_t g_probe_volt = 0;
-volatile uint8_t  g_probe_rc   = 0xFF;
-volatile uint8_t  g_i2c_scan_found = 0xFF;
-volatile uint8_t  g_i2c_scan_count = 0;
 
 /* ===== Delay micro giây (DWT) ===== */
 static void dwt_delay_init(void)
@@ -218,31 +215,4 @@ HAL_StatusTypeDef DRV_Motor_ResetEncoder(void)
     memset(zeros, 0, sizeof(zeros));
     return soft_i2c_write_len(REG_ENCODER_TOTAL, zeros,
                               sizeof(zeros)) ? HAL_ERROR : HAL_OK;
-}
-
-/* Scan bus bằng BIT-BANG: thử addr+W ở từng địa chỉ, đếm cái nào ACK.
- * found=0x34 nghĩa là addr+W ACK qua bit-bang (phép thử ưu tiên). */
-void DRV_Motor_ScanBus(void)
-{
-    g_i2c_scan_count = 0;
-    g_i2c_scan_found = 0xFF;
-    for (uint8_t a = 0x08; a <= 0x77; a++) {
-        i2c_start();
-        i2c_send_byte((uint8_t)((a << 1) | 0u));
-        uint8_t nak = i2c_wait_ack();
-        i2c_stop();
-        if (!nak) {
-            g_i2c_scan_count++;
-            if (g_i2c_scan_found == 0xFF) g_i2c_scan_found = a;
-        }
-        DelayUs(50);
-    }
-}
-
-/* Probe đọc voltage 0x00 (2 byte) qua bit-bang */
-void DRV_Motor_ProbeVoltage(void)
-{
-    uint8_t d[2] = { 0, 0 };
-    g_probe_rc   = soft_i2c_read_len(0x00, d, 2);
-    g_probe_volt = (g_probe_rc == 0) ? (uint16_t)(d[0] | (d[1] << 8)) : 0;
 }

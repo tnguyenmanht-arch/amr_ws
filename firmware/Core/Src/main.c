@@ -101,20 +101,6 @@ int main(void)
   DRV_Motor_Init();        // Không check return — tiếp tục dù config fail
   DRV_Servo_Init();        // Servo về vị trí trung tâm (lái thẳng)
   APP_Comm_Init(on_cmd_vel); // Bật UART2 nhận lệnh "$VEL" từ Jetson
-
-  /* ===== Chẩn đoán: scan bus + probe đọc voltage 0x00. Xóa sau khi xong. */
-  DRV_Motor_ScanBus();
-  DRV_Motor_ProbeVoltage();
-  {
-      char pbuf[80];
-      snprintf(pbuf, sizeof(pbuf),
-               "SCAN:found=0x%02X,count=%u | PROBE:volt=%u,rc=%u,ec=0x%lX\r\n",
-               (unsigned)g_i2c_scan_found, (unsigned)g_i2c_scan_count,
-               (unsigned)g_probe_volt, (unsigned)g_probe_rc,
-               (unsigned long)g_last_enc_i2c_ec);
-      APP_Comm_DebugPrint(pbuf);
-  }
-  /* ===== HẾT chẩn đoán ===== */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -133,7 +119,7 @@ int main(void)
 		  int32_t enc_l = 0, enc_r = 0;
 		  DRV_Motor_GetEncoder(&enc_l, &enc_r);
 
-		  /* ===== DEBUG — báo lỗi đọc I2C encoder. Xóa sau khi chẩn đoán xong. */
+		  /* debug: bật lại nếu nghi ngờ I2C lỗi (in mã lỗi đọc encoder qua UART2)
 		  if (g_last_enc_i2c_err != 0) {
 			  char errdbg[48];
 			  snprintf(errdbg, sizeof(errdbg), "ENCERR:%c%d,ec=0x%lX\r\n",
@@ -141,7 +127,7 @@ int main(void)
 					   (unsigned long)g_last_enc_i2c_ec);
 			  APP_Comm_DebugPrint(errdbg);
 		  }
-		  /* ===== HẾT DEBUG ===== */
+		  */
 
 		  /* Gửi "$ODO,enc_l,enc_r,steer\n" lên Jetson */
 		  APP_Comm_SendOdom(enc_l, enc_r, current_steer);
@@ -219,13 +205,6 @@ static void on_cmd_vel(float linear, float angular)
     int8_t spd_l, spd_r;
     /* Quy đổi cmd_vel -> tốc độ 2 bánh + góc lái; lưu góc lái để gửi odom */
     CALC_Ackermann(linear, angular, &spd_l, &spd_r, &current_steer);
-
-    /* ===== DEBUG — xác nhận callback chạy & giá trị quy đổi. Xóa sau khi test. */
-    char dbg[64];
-    snprintf(dbg, sizeof(dbg), "DBG:cmd=%.2f,%.2f spd=%d steer=%.1f\r\n",
-             (double)linear, (double)angular, (int)spd_l, (double)current_steer);
-    APP_Comm_DebugPrint(dbg);
-    /* ===== HẾT DEBUG ===== */
 
     DRV_Motor_SetSpeed(spd_l, spd_r);
     DRV_Servo_SetAngle(current_steer);
