@@ -19,6 +19,11 @@ __pycache__/
 
 # OS
 .DS_Store
-Thumbs.dbbuild/
-install/
-log/
+Thumbs.db
+
+# Vendor reference material (9.6GB: datasheets, 3D models, sample firmware) — KHÔNG commit
+reference/
+
+# Eclipse/STM32CubeIDE workspace metadata (máy-cụ-thể)
+.project
+.settings/
