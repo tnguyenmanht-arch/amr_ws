@@ -2,8 +2,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <cstring>
 #include <cerrno>
+#include <cstdio>
 
 namespace amr_hardware {
 
@@ -40,83 +40,49 @@ void SerialDriver::close() {
 bool SerialDriver::sendCmdVel(float linear_x, float angular_z) {
     if (fd_ < 0) return false;
 
-    uint8_t frame[13];
-    frame[0] = COMM_HDR1;
-    frame[1] = COMM_HDR2;
-    frame[2] = CMD_SET_VEL;
-    frame[3] = SET_VEL_DATA_LEN;
+    char buf[48];
+    int n = snprintf(buf, sizeof(buf), "$VEL,%.2f,%.2f\n", linear_x, angular_z);
+    if (n <= 0) return false;
 
-    memcpy(&frame[4], &linear_x,  4);
-    memcpy(&frame[8], &angular_z, 4);
-
-    frame[12] = calcCRC(frame[2], frame[3], &frame[4], SET_VEL_DATA_LEN);
-
-    ssize_t written = write(fd_, frame, sizeof(frame));
-    return written == static_cast<ssize_t>(sizeof(frame));
+    ssize_t written = write(fd_, buf, static_cast<std::size_t>(n));
+    return written == static_cast<ssize_t>(n);
 }
 
 bool SerialDriver::readOdom(OdomData& data) {
     if (fd_ < 0) return false;
 
+    // Đọc HẾT byte đang có trong kernel buffer, không dừng ở dòng hợp lệ đầu
+    // tiên: firmware gửi $ODO ở 100Hz nhưng node chỉ đọc mỗi timer tick
+    // (publish_rate_hz, thường 20Hz) -> nếu dừng sớm, dữ liệu tồn đọng sẽ
+    // dồn lại và ngày càng trễ so với thực tế. Luôn giữ bản ghi MỚI NHẤT.
+    bool got_valid = false;
     uint8_t byte;
     while (read(fd_, &byte, 1) == 1) {
-        switch (rx_state_) {
-            case RxState::WAIT_HDR1:
-                if (byte == COMM_HDR1) rx_state_ = RxState::WAIT_HDR2;
-                break;
+        if (byte == '\n') {
+            line_buf_[line_len_] = '\0';
 
-            case RxState::WAIT_HDR2:
-                rx_state_ = (byte == COMM_HDR2) ? RxState::WAIT_CMD
-                                                 : RxState::WAIT_HDR1;
-                break;
+            long  enc_l = 0, enc_r = 0;
+            float steer = 0.0f;
+            int matched = sscanf(line_buf_, "$ODO,%ld,%ld,%f",
+                                  &enc_l, &enc_r, &steer);
+            line_len_ = 0;
 
-            case RxState::WAIT_CMD:
-                rx_cmd_   = byte;
-                rx_state_ = RxState::WAIT_LEN;
-                break;
-
-            case RxState::WAIT_LEN:
-                rx_len_   = byte;
-                rx_count_ = 0;
-                rx_buf_.fill(0);
-                if (rx_cmd_ == CMD_ODOM && rx_len_ == ODOM_DATA_LEN) {
-                    rx_state_ = RxState::READ_DATA;
-                } else {
-                    rx_state_ = RxState::WAIT_HDR1;
-                }
-                break;
-
-            case RxState::READ_DATA:
-                rx_buf_[rx_count_++] = byte;
-                if (rx_count_ >= rx_len_) {
-                    rx_state_ = RxState::READ_CRC;
-                }
-                break;
-
-            case RxState::READ_CRC: {
-                uint8_t expected = calcCRC(rx_cmd_, rx_len_,
-                                           rx_buf_.data(), rx_len_);
-                rx_state_ = RxState::WAIT_HDR1;
-
-                if (byte != expected) break;
-
-                memcpy(&data.left_ticks,   &rx_buf_[0], 4);
-                memcpy(&data.right_ticks,  &rx_buf_[4], 4);
-                memcpy(&data.steering_pos, &rx_buf_[8], 2);
-                return true;
+            if (matched == 3) {
+                data.left_ticks  = static_cast<int32_t>(enc_l);
+                data.right_ticks = static_cast<int32_t>(enc_r);
+                data.steer_deg   = steer;
+                got_valid = true;
             }
+            // Dòng không khớp format (nhiễu/dòng debug khác) -> bỏ qua, đọc tiếp
+        } else if (byte == '\r') {
+            // Bỏ qua CR (STM32 chỉ gửi '\n' nhưng phòng khi có CRLF)
+        } else if (line_len_ < kLineBufSize - 1) {
+            line_buf_[line_len_++] = static_cast<char>(byte);
+        } else {
+            line_len_ = 0;  // Tràn buffer -> dòng lỗi, reset
         }
     }
-    return false;
-}
-
-uint8_t SerialDriver::calcCRC(uint8_t cmd, uint8_t len,
-                               const uint8_t* data, uint8_t data_len) {
-    uint8_t crc = cmd ^ len;
-    for (uint8_t i = 0; i < data_len; i++) {
-        crc ^= data[i];
-    }
-    return crc;
+    return got_valid;
 }
 
 speed_t SerialDriver::toBaudRate(int baud) {

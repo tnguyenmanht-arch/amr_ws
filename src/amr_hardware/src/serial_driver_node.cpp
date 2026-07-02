@@ -3,6 +3,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <std_msgs/msg/float32.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2/LinearMath/Quaternion.h>
 
@@ -43,7 +44,8 @@ public:
                 "Serial OK: %s @ %d baud", port_.c_str(), baud_);
         }
 
-        odom_pub_    = this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+        odom_pub_            = this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
+        steering_angle_pub_  = this->create_publisher<std_msgs::msg::Float32>("/steering_angle", 10);
         cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10,
             std::bind(&SerialDriverNode::cmdVelCallback, this, std::placeholders::_1));
@@ -72,6 +74,10 @@ private:
     void timerCallback() {
         OdomData od;
         if (!driver_.readOdom(od)) return;
+
+        std_msgs::msg::Float32 steer_msg;
+        steer_msg.data = od.steer_deg;  // độ, có dấu — khớp giá trị STM32 gửi qua $ODO
+        steering_angle_pub_->publish(steer_msg);
 
         auto now = this->now();
         double dt = (now - last_time_).seconds();
@@ -135,6 +141,7 @@ private:
     rclcpp::Time last_time_;
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr steering_angle_pub_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
     rclcpp::TimerBase::SharedPtr timer_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
