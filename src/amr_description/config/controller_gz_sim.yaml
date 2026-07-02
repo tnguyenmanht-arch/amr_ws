@@ -10,29 +10,39 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
 # ─── AckermannSteeringController ──────────────────────────────────
-# Tên param theo steering_controllers_library (Humble) — KHỚP với
-# repo bạn bè đã chạy được. Các param string_array PHẢI viết dạng
-# YAML list (mỗi phần tử một dòng, có dấu "-"), và thứ tự RIGHT trước,
-# LEFT sau theo quy ước của controller.
+# QUAN TRỌNG: bản cài trên máy là ackermann_steering_controller v2.53.1
+# (steering_controllers_library API MỚI). Tên param KHÁC bản cũ:
+#   front_wheels_names / rear_wheels_names   (KHÔNG phải steering/traction_joints_names)
+#   front_wheel_track / rear_wheel_track     (KHÔNG phải steering/traction_track_width)
+#   front_wheels_radius / rear_wheels_radius (KHÔNG phải traction_wheels_radius)
+# Với xe lái trước, dẫn động sau:
+#   front_wheels_names = khớp LÁI   (nhận position command)
+#   rear_wheels_names  = khớp DẪN ĐỘNG (nhận velocity command)
+# Thứ tự phần tử: index 0 = RIGHT, index 1 = LEFT
+# (theo quy ước STATE_*_RIGHT_WHEEL = 0 trong steering_controllers_library).
 ackermann_steering_controller:
   ros__parameters:
 
-    # ── string_array REQUIRED ──────────────────────────────────────
-    # Bánh sau dẫn động (traction) — right trước, left sau
-    traction_joints_names:
-      - rear_right_wheel_joint
-      - rear_left_wheel_joint
+    # Lái nằm ở cầu trước
+    front_steering: true
 
-    # Khớp lái trước (steering) — right trước, left sau
-    steering_joints_names:
+    # ── string_array REQUIRED ──────────────────────────────────────
+    # Khớp lái trước (front) — right trước, left sau
+    front_wheels_names:
       - front_right_steer_joint
       - front_left_steer_joint
 
-    # ── double REQUIRED (đều phải > 0) ────────────────────────────
-    wheelbase:              0.210   # khoảng cách trục trước-sau (m)
-    traction_track_width:   0.217   # tâm-tâm 2 bánh sau (m)
-    steering_track_width:   0.217   # tâm-tâm 2 bánh lái trước (m)
-    traction_wheels_radius: 0.05    # bán kính bánh dẫn động (m)
+    # Bánh dẫn động sau (rear) — right trước, left sau
+    rear_wheels_names:
+      - rear_right_wheel_joint
+      - rear_left_wheel_joint
+
+    # ── hình học (double, đều phải > 0) ───────────────────────────
+    wheelbase:           0.210   # khoảng cách trục trước-sau (m)
+    front_wheel_track:   0.217   # tâm-tâm 2 bánh lái trước (m)
+    rear_wheel_track:    0.217   # tâm-tâm 2 bánh sau (m)
+    front_wheels_radius: 0.05    # bán kính bánh trước (m) — khớp wheel_radius trong URDF
+    rear_wheels_radius:  0.05    # bán kính bánh sau (m)
 
     # ── tùy chọn ──────────────────────────────────────────────────
     open_loop: false          # dùng velocity thực tế từ Gazebo

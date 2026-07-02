@@ -4,8 +4,8 @@
   <!-- ─── ros2_control — Ignition Fortress hardware interface ─────── -->
   <ros2_control name="IgnitionSystem" type="system">
     <hardware>
-      <!-- Plugin cho Gazebo Fortress (Ignition) -->
-      <plugin>ign_ros2_control/IgnitionSystem</plugin>
+      <!-- Plugin cho Gazebo Sim (gz_ros2_control) -->
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
     </hardware>
 
     <!-- Bánh sau trái — velocity command (dẫn động) -->
@@ -59,10 +59,10 @@
     </joint>
   </ros2_control>
 
-  <!-- Plugin ign_ros2_control tải vào Gazebo Fortress -->
+  <!-- Plugin gz_ros2_control tải vào Gazebo Sim -->
   <gazebo>
-    <plugin filename="ign_ros2_control-system"
-            name="ign_ros2_control::IgnitionROS2ControlPlugin">
+    <plugin filename="gz_ros2_control-system"
+            name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(find amr_description)/config/controller_gz_sim.yaml</parameters>
     </plugin>
   </gazebo>

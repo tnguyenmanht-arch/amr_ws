@@ -12,7 +12,11 @@ Thứ tự khởi động:
 import os
 import xacro
 
-from ament_index_python.packages import get_package_prefix, get_package_share_directory
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_prefix,
+    get_package_share_directory,
+)
 
 from launch import LaunchDescription
 from launch.actions import (
@@ -92,12 +96,18 @@ def generate_launch_description():
         output='screen',
     )
 
-    # 4b. Spawn ackermann_steering_controller — sau khi jsb đã load xong
+    # 4b. Spawn ackermann_steering_controller — sau khi jsb đã load xong.
+    #     PHẢI truyền --param-file: thực nghiệm cho thấy params qua <parameters>
+    #     tag trong URDF KHÔNG tới được controller node (lỗi "expected
+    #     [string_array] got [not set]"). Nạp trực tiếp YAML qua spawner.
+    controller_config = os.path.join(pkg_share, 'config', 'controller_gz_sim.yaml')
     spawn_ackermann = Node(
         package='controller_manager',
         executable='spawner',
         name='spawner_ackermann',
-        arguments=['ackermann_steering_controller'],
+        arguments=['ackermann_steering_controller',
+                   '--controller-manager', '/controller_manager',
+                   '--param-file', controller_config],
         output='screen',
     )
 
@@ -127,12 +137,36 @@ def generate_launch_description():
         actions=[gz_bridge],
     )
 
-    return LaunchDescription([
+    # 6. Relay /cmd_vel → reference_unstamped của ackermann_steering_controller.
+    #    Controller (v2.53.x) nghe trên ~/reference_unstamped (geometry_msgs/Twist),
+    #    KHÔNG nghe /cmd_vel. Relay này để teleop và Nav2 (đều publish /cmd_vel)
+    #    điều khiển được robot mà không cần remap thủ công.
+    #    Cần: sudo apt install ros-humble-topic-tools
+    #    Guard: nếu chưa cài topic_tools thì BỎ QUA node này (tránh làm crash cả
+    #    launch). Cài xong topic_tools, relay tự bật ở lần launch sau.
+    try:
+        get_package_share_directory('topic_tools')
+        cmd_vel_relay = Node(
+            package='topic_tools',
+            executable='relay',
+            name='cmd_vel_relay',
+            arguments=['/cmd_vel',
+                       '/ackermann_steering_controller/reference_unstamped'],
+            output='screen',
+        )
+    except PackageNotFoundError:
+        print('[gazebo.launch.py] CẢNH BÁO: chưa cài ros-humble-topic-tools → '
+              'bỏ qua cmd_vel_relay. /cmd_vel sẽ KHÔNG điều khiển được robot.')
+        cmd_vel_relay = None
+
+    actions = [
         world_arg,
         gz_headless_arg,
+        # Launcher dùng `ign gazebo` (Fortress) → đọc IGN_GAZEBO_SYSTEM_PLUGIN_PATH.
+        # Plugin gz_ros2_control-system nằm trong prefix của package gz_ros2_control.
         SetEnvironmentVariable(
             'IGN_GAZEBO_SYSTEM_PLUGIN_PATH',
-            os.path.join(get_package_prefix('ign_ros2_control'), 'lib')
+            os.path.join(get_package_prefix('gz_ros2_control'), 'lib')
         ),
         robot_state_publisher,
         gazebo,
@@ -140,4 +174,8 @@ def generate_launch_description():
         spawn_jsb,
         load_ackermann_after_jsb,
         delayed_bridge,
-    ])
+    ]
+    if cmd_vel_relay is not None:
+        actions.append(cmd_vel_relay)
+
+    return LaunchDescription(actions)
