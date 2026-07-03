@@ -1,8 +1,12 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- ─── Camera frame (IMX-219 CSI) ───────────────────────────── -->
-  <!-- CẦN ĐIỀU CHỈNH vị trí gắn camera IMX-219 -->
+  <!-- ─── Camera frame ─────────────────────────────────────────── -->
+  <!-- Tạm dùng webcam USB thay IMX-219 (chưa về hàng), gắn ngang mặt
+       trước xe. Đo thực tế (2026-07-03): cao 10.5cm so với mặt đất,
+       nhô ra phía trước 5cm so với mép trước chassis, đặt ngang (pitch=0).
+       base_link_z=0.053m (xem amr_core.xacro) -> z tương đối = 0.105-0.053=0.052m
+       base_length/2=0.1485m -> x tương đối = 0.1485+0.05=0.1985m -->
   <link name="camera_frame">
     <visual>
       <geometry>
@@ -15,8 +19,7 @@
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="camera_frame"/>
-    <!-- camera thường gắn phía trước, hướng xuống hoặc thẳng -->
-    <origin xyz="0.12 0 0.05" rpy="0 0.3 0"/>
+    <origin xyz="0.1985 0 0.052" rpy="0 0 0"/>
   </joint>
 
   <!-- Frame optical (ROS convention: z-forward, x-right, y-down) -->
