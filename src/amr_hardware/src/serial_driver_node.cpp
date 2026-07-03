@@ -25,6 +25,11 @@ public:
         this->declare_parameter("encoder_ppr",     11.0);
         this->declare_parameter("gear_ratio",      90.0);
         this->declare_parameter("publish_rate_hz", 20.0);
+        // Bù lệch tâm servo lái (rad/s, cộng vào angular.z trước khi gửi
+        // xuống firmware) — CẦN TUNE THỰC NGHIỆM. Servo lái vật lý không
+        // canh giữa tuyệt đối ở steer_deg=0 nên xe đi thẳng bị lệch hướng;
+        // sửa ở đây (phía Jetson) để không cần build lại firmware STM32.
+        this->declare_parameter("steering_trim_angular_z", 0.0);
 
         port_         = this->get_parameter("serial_port").as_string();
         baud_         = this->get_parameter("baud_rate").as_int();
@@ -34,6 +39,7 @@ public:
         double gear   = this->get_parameter("gear_ratio").as_double();
         ticks_per_rev_ = ppr * gear;
         double hz     = this->get_parameter("publish_rate_hz").as_double();
+        steering_trim_angular_z_ = this->get_parameter("steering_trim_angular_z").as_double();
 
         if (!driver_.open(port_, baud_)) {
             RCLCPP_ERROR(this->get_logger(),
@@ -63,9 +69,10 @@ public:
 
 private:
     void cmdVelCallback(const geometry_msgs::msg::Twist& msg) {
+        double angular_trimmed = msg.angular.z + steering_trim_angular_z_;
         if (!driver_.sendCmdVel(
                 static_cast<float>(msg.linear.x),
-                static_cast<float>(msg.angular.z))) {
+                static_cast<float>(angular_trimmed))) {
             RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                 "Gửi cmd_vel thất bại — kiểm tra serial port");
         }
@@ -147,6 +154,7 @@ private:
     double  wheel_radius_  = 0.10;
     double  wheel_base_    = 0.21;
     double  ticks_per_rev_ = 990.0;
+    double  steering_trim_angular_z_ = 0.0;
 
     double  x_ = 0.0, y_ = 0.0, theta_ = 0.0;
     int32_t prev_left_ = 0, prev_right_ = 0;

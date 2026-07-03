@@ -27,14 +27,22 @@ def generate_launch_description():
                 'wheel_radius':    0.10,
                 'wheel_base':      0.21,
                 # encoder_ppr đã HIỆU CHUẨN THỰC NGHIỆM (2026-07-03), KHÔNG còn
-                # là giá trị datasheet (11). Đo: xe chạy thẳng ~0.426m thực tế
-                # (thước dây) trong khi /odom tính ra ~3.361m -> ticks_per_rev
-                # thật ~7810 (thay vì 990 lý thuyết = 11*90). Chỉ 1 lần đo, độ
-                # lệch hướng y không chắc chắn -> CẦN đo lại thêm vài lần, quãng
-                # đường dài hơn để tăng độ chính xác trước khi tin tưởng hoàn toàn.
-                'encoder_ppr':     86.78,
+                # là giá trị datasheet (11). Đo 3 lần độc lập trên khung xe thật
+                # (bánh chạm đất, quãng ~0.34-0.5m/lần, đo bằng thước dây so với
+                # /odom): ticks_per_rev thật ~7830/8036/7827 -> kết hợp có trọng
+                # số = ~7885 (độ lệch chuẩn giữa 3 lần chỉ ~1.24%, đáng tin cậy).
+                # Thay cho 990 lý thuyết (11 PPR x gear 90).
+                'encoder_ppr':     87.61,
                 'gear_ratio':      90.0,
                 'publish_rate_hz': 20.0,
+                # Bù lệch tâm servo lái — HIỆU CHUẨN THỰC NGHIỆM (2026-07-03).
+                # Xe đi thẳng (angular.z=0) bị lệch trái ~6.3cm/m khi chưa bù.
+                # Dò bằng thực nghiệm (test 0, +0.08, -0.15, -0.10 rad/s), điểm
+                # tin cậy nhất là quãng dài 1.465m @ trim=-0.10 (lệch phải
+                # 6.5cm = 4.4%/m) kết hợp baseline -> nội suy trim=-0.06.
+                # CẦN đo lại xác nhận khi có không gian dài hơn (>2m) — số liệu
+                # hiện tại còn nhiễu ở quãng ngắn (<1m).
+                'steering_trim_angular_z': -0.06,
             }],
         ),
     ])
