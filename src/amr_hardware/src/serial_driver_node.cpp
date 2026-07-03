@@ -79,6 +79,18 @@ private:
         steer_msg.data = od.steer_deg;  // độ, có dấu — khớp giá trị STM32 gửi qua $ODO
         steering_angle_pub_->publish(steer_msg);
 
+        // Thanh ghi ENCODER_TOTAL trên mạch Hiwonder KHÔNG tự reset khi node
+        // khởi động lại -> lần đọc đầu tiên có thể mang giá trị tick tích lũy
+        // từ những lần chạy trước. Lấy giá trị đọc đầu tiên làm baseline thay
+        // vì giả định 0, tránh nhảy vọt vị trí giả tạo ngay khi node khởi động.
+        if (!got_first_odom_) {
+            prev_left_      = od.left_ticks;
+            prev_right_     = od.right_ticks;
+            got_first_odom_ = true;
+            last_time_      = this->now();
+            return;
+        }
+
         auto now = this->now();
         double dt = (now - last_time_).seconds();
         last_time_ = now;
@@ -138,6 +150,7 @@ private:
 
     double  x_ = 0.0, y_ = 0.0, theta_ = 0.0;
     int32_t prev_left_ = 0, prev_right_ = 0;
+    bool    got_first_odom_ = false;
     rclcpp::Time last_time_;
 
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;

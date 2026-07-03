@@ -359,7 +359,14 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 - **Fix**: đọc HẾT byte đang có trong buffer mỗi lần gọi `readOdom()`, cập nhật `data` với dòng hợp lệ MỚI NHẤT tìm được (không return sớm ở dòng đầu tiên). Đã verify lại: phản hồi tức thời, không còn trễ.
 - Bug này tồn tại y hệt trong cả code binary cũ (cũng return sớm ở frame CRC đầu tiên) — chỉ chưa bị phát hiện vì protocol cũ không tương thích firmware nên chưa từng chạy được để lộ lỗi.
 
-**Việc tiếp theo:** Test Camera IMX-219 (`/camera/image_raw`). Cân nhắc bù vi sai tốc độ trái/phải khi vào cua (hiện `CALC_Ackermann` trong firmware dùng tốc độ 2 bánh sau bằng nhau — ghi rõ trong `ackermann.h` là mô hình đơn giản hóa).
+**Bug thứ 2 phát hiện khi lắp lên khung xe thật (2026-07-03) + hiệu chuẩn odometry:**
+- Khi khởi động node lần đầu trên khung xe đã lắp (bánh chạm đất), `/odom` nhảy vọt ngay `x=-669, y=-1057` thay vì `(0,0)`. Nguyên nhân: thanh ghi `ENCODER_TOTAL` (0x3C) trên mạch Hiwonder là bộ đếm **không tự reset** khi node ROS2 khởi động lại — giữ nguyên tổng tick tích lũy từ các lần test trước. Code cũ giả định tick ban đầu = 0 (`prev_left_/prev_right_ = 0`) nên delta lần đọc đầu tiên = tick tích lũy khổng lồ.
+- **Fix**: `serial_driver_node.cpp` thêm cờ `got_first_odom_` — lần đọc `$ODO` hợp lệ đầu tiên chỉ dùng để set `prev_left_/prev_right_` làm baseline (không tính delta/publish), từ lần thứ 2 trở đi mới tính odometry bình thường. Đã verify: node khởi động lại nhiều lần đều cho `/odom` bắt đầu đúng `(0,0)`.
+- **Hiệu chuẩn `ticks_per_rev` thực nghiệm**: xe chạy thẳng `linear.x=0.1` ~1s trên khung xe thật (bánh chạm đất), đo bằng thước dây thực tế **42.5cm**, trong khi `/odom` (dùng `ticks_per_rev=990` lý thuyết = 11 PPR × gear 90) tính ra **~3.36m** — sai lệch ~7.9 lần. Tính lại `ticks_per_rev` thật ≈ **7810** (→ `encoder_ppr` hiệu chỉnh = 7810/90 ≈ **86.78**, giữ `gear_ratio=90` cố định). Đã cập nhật `src/amr_hardware/launch/hardware.launch.py`.
+- **Verify lại sau hiệu chuẩn**: lặp lại đúng test (`linear.x=0.1` ~1s) → `/odom` báo `x=0.427m` so với đo thật `42.5cm` — sai lệch chỉ ~0.5% (nằm trong sai số đo tay). Lệch trục y (~1cm sau 42cm) nghi do servo lái chưa canh giữa tuyệt đối (offset cơ khí), không phải lỗi công thức odometry.
+- ⚠️ **Lưu ý**: mới hiệu chuẩn dựa trên **1 lần đo** ~42cm — nên đo lại thêm vài lần ở quãng đường dài hơn (1-2m) để tăng độ tin cậy trước khi dùng cho SLAM/Nav2 thật. `encoder_ppr=86.78` không còn phản ánh PPR vật lý thật của encoder (datasheet ghi 11) — đây là giá trị hiệu chỉnh thực nghiệm cho khớp hành vi thật của hệ (có thể do driver Hiwonder đếm quadrature khác giả định, hoặc gear ratio thật khác 90:1).
+
+**Việc tiếp theo:** Test Camera IMX-219 (`/camera/image_raw`). Đo lại calibration ticks_per_rev với quãng đường dài hơn để tăng độ tin cậy. Cân nhắc canh giữa lại servo lái (offset cơ khí ~1cm/42cm). Cân nhắc bù vi sai tốc độ trái/phải khi vào cua (hiện `CALC_Ackermann` trong firmware dùng tốc độ 2 bánh sau bằng nhau — ghi rõ trong `ackermann.h` là mô hình đơn giản hóa).
 
 ### 🔧 Giai đoạn 4 — SLAM: ĐANG TRIỂN KHAI
 - [x] Cài `ros-humble-slam-toolbox` (apt, 2026-05-14)
