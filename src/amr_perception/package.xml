@@ -16,6 +16,8 @@
   <exec_depend>image_transport</exec_depend>
   <exec_depend>python3-opencv</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+  <!-- Webcam USB tạm thay IMX-219 (chưa về hàng) — xem camera.launch.py -->
+  <exec_depend>usb_cam</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
