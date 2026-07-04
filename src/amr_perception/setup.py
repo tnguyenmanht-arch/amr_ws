@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'lane_detection_node = amr_perception.lane_detection_node:main',
+            'lane_follow_node = amr_perception.lane_follow_node:main',
             'lidar_filter_node = amr_perception.lidar_filter_node:main',
         ],
     },

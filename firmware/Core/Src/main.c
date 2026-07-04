@@ -51,6 +51,19 @@
 /* USER CODE BEGIN PV */
 static uint32_t last_odom_ms = 0;     /* Mốc thời gian gửi odom gần nhất */
 static float    current_steer = 0.0f; /* Góc lái hiện tại (độ) để gửi lên Jetson */
+
+/* ===== Watchdog lệnh $VEL từ Jetson (AN TOÀN — bắt buộc, xem giải thích ở
+ * vòng lặp chính bên dưới). Phát hiện 2026-07-04: kill hết node ROS trên
+ * Jetson (hoặc rút cáp USB/USART2) nhưng xe VẪN chạy mãi ở tốc độ lệnh cuối
+ * cùng, vì watchdog nội bộ của Hiwonder Motor Driver (tự dừng nếu >2s không
+ * nhận I2C) bị "cho ăn" liên tục bởi việc STM32 đọc encoder mỗi 10ms bất kể
+ * có $VEL mới hay không -> watchdog đó không bao giờ kích hoạt. STM32 phải
+ * tự bảo vệ, không thể trông chờ Jetson luôn gửi lệnh đều đặn. ===== */
+#define VEL_WATCHDOG_TIMEOUT_MS   300U  /* CẦN TUNE thực nghiệm: đủ ngắn để an
+                                          * toàn, đủ dài để không dừng nhầm do
+                                          * jitter mạng/CPU phía Jetson */
+static uint32_t last_vel_rx_ms       = 0; /* Mốc thời gian nhận $VEL hợp lệ gần nhất */
+static uint8_t  vel_watchdog_tripped = 0; /* Tránh gọi SetSpeed(0,0) lặp lại mỗi vòng lặp */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -135,6 +148,16 @@ int main(void)
 
 	  /* ---- Xử lý lệnh "$VEL" nhận từ Jetson (gọi on_cmd_vel khi đủ frame) ---- */
 	  APP_Comm_Parse();
+
+	  /* ---- AN TOÀN: watchdog $VEL — xem giải thích đầy đủ ở khai báo biến
+	   * last_vel_rx_ms phía trên. Không dùng watchdog I2C của Hiwonder vì nó
+	   * bị "cho ăn" liên tục bởi việc đọc encoder mỗi 10ms ở trên, dù Jetson
+	   * đã ngừng gửi lệnh từ lâu (node ROS chết, rút cáp USB/USART2...). ---- */
+	  if (last_vel_rx_ms != 0U && !vel_watchdog_tripped &&
+	      (now - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS) {
+		  DRV_Motor_SetSpeed(0, 0);
+		  vel_watchdog_tripped = 1U;
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -208,6 +231,12 @@ static void on_cmd_vel(float linear, float angular)
 
     DRV_Motor_SetSpeed(spd_l, spd_r);
     DRV_Servo_SetAngle(current_steer);
+
+    /* AN TOÀN: ghi nhận mốc thời gian nhận $VEL hợp lệ, reset cờ watchdog để
+     * lần mất kết nối SAU vẫn phát hiện được (xem watchdog trong vòng lặp
+     * chính, khai báo biến ở USER CODE PV). */
+    last_vel_rx_ms       = HAL_GetTick();
+    vel_watchdog_tripped = 0U;
 }
 /* USER CODE END 4 */
 

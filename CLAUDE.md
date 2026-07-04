@@ -380,7 +380,15 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 - Thêm `usb_cam` vào `exec_depend` trong `amr_perception/package.xml`.
 - **Tham khảo kiến trúc từ repo bạn** (`github.com/DangTinhPat/Ackerman_minCell`, nhánh `Lane_detect`): dùng model DNN (ONNX) thay Canny/Hough, RANSAC polyfit, quy đổi pixel→mét qua `transformer.py` (`e_y`, `e_psi`, `kappa`), Stanley controller + blend κ_vision/κ_odom qua EKF (`robot_localization`, encoder+IMU). Kiến trúc này xác nhận hướng thêm MPU6050+EKF là đúng, nhưng phức tạp hơn nhiều so với mục tiêu hiện tại — để tham khảo dần, không copy nguyên.
 
-**Việc tiếp theo (Lane Detection):** Test `lane_detection_node` với vạch làn thật (băng dính/giấy kẻ trên sàn) để tune `canny_low/high`, `hough_threshold`, `roi_top_ratio`. Viết node PID (`amr_control`?) nhận `/lane_center_error` → xuất `angular.z` trong `/cmd_vel`. Khi IMX-219 về: đổi driver camera sang CSI thật, đo lại vị trí lắp, giữ nguyên topic `/camera/image_raw`.
+**Test với vạch làn thật (băng dính đen, 46cm × 3m) — 2026-07-04:**
+- **Xác nhận dấu `/lane_center_error` bằng thực nghiệm tĩnh** (không cho xe chạy): đặt xe lệch trái tâm làn thật → đo được `error` âm — khớp docstring gốc (`âm=lệch trái`). Công thức `angular.z = +Kp * error` là ĐÚNG dấu (đã verify, không cần đảo dấu).
+- **Viết `lane_follow_node.py`** (P controller đơn giản, `amr_perception/amr_perception/lane_follow_node.py`): sub `/lane_center_error` → pub `/cmd_vel`. Có watchdog dừng xe nếu mất `/lane_center_error` > `error_timeout` (0.5s).
+- **Sửa `lane_detection_node.py`**: chỉ publish `/lane_center_error` khi **thực sự phát hiện được ≥1 vạch** (`detected` flag mới) — trước đó luôn publish kể cả khi không thấy gì (mặc định `error=0`), khiến xe chạy thẳng "mù quáng" khi mất dấu làn mà watchdog không phát hiện được (vì message vẫn đều đặn tới). Fix này để watchdog trong `lane_follow_node` hoạt động đúng.
+- **Camera lắp lại lần 2** (2026-07-04, sau khi phát hiện lần 1 vạch không lọt khung hình vì làn 46cm rộng hơn FOV): cao **22.5cm**, lùi vào **1.5cm** so mép trước chassis, nghiêng xuống **~7.5°** (ước lượng, chưa đo chính xác). Đã cập nhật `camera.xacro`.
+- **Phát hiện: đứng sát camera che khung hình** — người test đứng cạnh xe cầm dây theo dõi vô tình che gần hết 1 nửa khung hình camera, gây nhận diện làn chập chờn (log ghi nhận watchdog "mất dấu" kích hoạt 11 lần trong ~3 phút test). Cần đứng xa/lệch sang bên khi test, không đứng ngay trước/sát ống kính.
+- **🔴 Phát hiện bug an toàn firmware nghiêm trọng khi test thật** — xem chi tiết đầy đủ ở mục "Vấn đề đang gặp" bên dưới (watchdog `$VEL` timeout, đã sửa code `main.c` nhưng CHƯA build/nạp).
+
+**Việc tiếp theo (Lane Detection):** Build/nạp firmware watchdog fix (xem "Vấn đề đang gặp"), verify hoạt động đúng. Sau đó test lại `lane_follow_node` thật (đứng xa camera hơn), tune `canny_low/high`, `hough_threshold`, `roi_top_ratio` cho vị trí camera mới. Khi IMX-219 về: đổi driver camera sang CSI thật, đo lại vị trí lắp, giữ nguyên topic `/camera/image_raw`.
 
 ### 🔧 Giai đoạn 4 — SLAM: ĐANG TRIỂN KHAI
 - [x] Cài `ros-humble-slam-toolbox` (apt, 2026-05-14)
@@ -394,11 +402,6 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 ### ⏳ Giai đoạn 5 — Nav2: CHƯA BẮT ĐẦU
 - [ ] AMCL localization trên bản đồ có sẵn
 - [ ] Điều hướng tự động A → B
-
-### ⏳ Giai đoạn 6 — Lane Detection & Parking: CHƯA BẮT ĐẦU
-- [ ] Lane detection cơ bản (Canny + Hough)
-- [ ] Lane keeping controller (PID)
-- [ ] Parking state machine
 
 ### Quyết định kỹ thuật đã chốt
 - Motor driver: Hiwonder 4-Ch Encoder Motor Driver, giao tiếp I2C1 (PB8/PB9), GPIO_PULLUP
@@ -419,7 +422,21 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 7. **TTL Bus Servo Debugging Board hỏng**: thay bằng đấu trực tiếp STM32↔servo qua điện trở nối tiếp (xem Giai đoạn 2) — không cần sửa firmware, chỉ đổi dây
 
 ### Vấn đề đang gặp
-_(không có)_
+
+**🔴 NGHIÊM TRỌNG — Bug an toàn firmware, ĐÃ SỬA code, CHƯA build/nạp (2026-07-04):**
+
+Phát hiện khi test `lane_follow_node` thật trên xe (Giai đoạn 6): kill hết node ROS trên Jetson (`serial_driver_node`, `lane_detection_node`, `lane_follow_node`) và gửi `cmd_vel=0` nhiều lần, nhưng **bánh xe vẫn quay mãi không dừng** ở tốc độ lệnh cuối cùng — chỉ dừng hẳn khi rút cáp USB STM32↔Jetson (cắt nguồn 5V cấp cho STM32).
+
+**Nguyên nhân**: watchdog nội bộ của Hiwonder Motor Driver (tự dừng motor nếu >2s không nhận lệnh I2C) bị vô hiệu hóa vì STM32 đọc encoder qua I2C **mỗi 10ms trong main loop, bất kể có `$VEL` mới từ Jetson hay không** (`DRV_Motor_GetEncoder` chạy độc lập, không phụ thuộc `APP_Comm_Parse`/`on_cmd_vel`). Vì vậy dù Jetson ngừng gửi lệnh hoàn toàn (crash, kill node, rút cáp USART2), STM32 vẫn liên tục có traffic I2C tới Hiwonder → watchdog phần cứng đó không bao giờ kích hoạt → motor giữ nguyên tốc độ lệnh cuối cùng **vô thời hạn**.
+
+**Đã sửa trong code** (`firmware/Core/Src/main.c`, 2026-07-04): thêm watchdog riêng ở tầng ứng dụng —
+- Biến `last_vel_rx_ms` ghi lại mốc thời gian mỗi khi `on_cmd_vel()` nhận được `$VEL` hợp lệ
+- Trong vòng lặp chính, nếu `(now - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS` (300ms, **CẦN TUNE thực nghiệm**) thì STM32 tự gọi `DRV_Motor_SetSpeed(0, 0)` — không chờ/dựa vào watchdog I2C của Hiwonder nữa
+- Cờ `vel_watchdog_tripped` tránh gọi lặp lại mỗi vòng lặp; reset về 0 khi có `$VEL` mới (cho phép watchdog kích hoạt lại nếu mất kết nối lần sau)
+
+**⚠️ CHƯA build/nạp firmware này lên STM32 thật** — code mới chỉ sửa trên Jetson (`firmware/Core/Src/main.c` trong repo), cần build + flash từ máy Windows (STM32CubeIDE) rồi test lại xác nhận: (1) xe vẫn chạy bình thường khi có lệnh liên tục, (2) xe **tự dừng trong ~300ms** khi ngắt kết nối Jetson (thử bằng cách kill node/rút cáp USART2 lúc xe đang chạy chậm, quan sát bánh có dừng đúng ~0.3s không).
+
+**Việc tiếp theo**: build/nạp firmware, verify watchdog hoạt động đúng, rồi mới tiếp tục test `lane_follow_node` thật. Khi test lại, đứng xa/lệch sang bên thay vì đứng sát ống kính camera (đã phát hiện: đứng sát che khung hình gây nhận diện làn chập chờn).
 
 ---
 

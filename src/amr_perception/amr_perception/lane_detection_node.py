@@ -55,12 +55,16 @@ class LaneDetectionNode(Node):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         frame = cv2.resize(frame, (self.img_w, self.img_h))
 
-        error, debug_frame = self._detect_lane(frame)
+        error, detected, debug_frame = self._detect_lane(frame)
 
-        # Publish lỗi tâm làn
-        err_msg = Float32()
-        err_msg.data = float(error)
-        self.error_pub.publish(err_msg)
+        # Chỉ publish khi THỰC SỰ phát hiện được ít nhất 1 vạch làn.
+        # Không publish khi mất dấu -> lane_follow_node (watchdog theo thời
+        # gian nhận message) tự động dừng xe, tránh trường hợp xe chạy thẳng
+        # mù quáng khi _detect_lane rơi về giá trị mặc định (error=0).
+        if detected:
+            err_msg = Float32()
+            err_msg.data = float(error)
+            self.error_pub.publish(err_msg)
 
         if self.publish_debug and debug_frame is not None:
             debug_msg = self.bridge.cv2_to_imgmsg(debug_frame, encoding='bgr8')
@@ -118,6 +122,8 @@ class LaneDetectionNode(Node):
         left_x  = self._avg_x(left_lines,  h)
         right_x = self._avg_x(right_lines, h)
 
+        detected = left_x is not None or right_x is not None
+
         if left_x is not None and right_x is not None:
             cx_w = (left_x + right_x) / 2.0
         elif left_x is not None:
@@ -135,10 +141,10 @@ class LaneDetectionNode(Node):
         if right_x is not None:
             cv2.circle(debug_frame, (int(right_x), h - 20), 8, (0, 0, 255), -1)
         cv2.circle(debug_frame, (int(cx_w), h - 20), 10, (255, 0, 0), -1)
-        cv2.putText(debug_frame, f'error: {error:.3f}',
+        cv2.putText(debug_frame, f'error: {error:.3f}' + ('' if detected else '  [MAT DAU]'),
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
-        return error, debug_frame
+        return error, detected, debug_frame
 
     def _avg_x(self, lines, img_h):
         """Tính x trung bình ở đáy ảnh từ list các line."""

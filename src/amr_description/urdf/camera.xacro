@@ -2,11 +2,14 @@
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <!-- ─── Camera frame ─────────────────────────────────────────── -->
-  <!-- Tạm dùng webcam USB thay IMX-219 (chưa về hàng), gắn ngang mặt
-       trước xe. Đo thực tế (2026-07-03): cao 10.5cm so với mặt đất,
-       nhô ra phía trước 5cm so với mép trước chassis, đặt ngang (pitch=0).
-       base_link_z=0.053m (xem amr_core.xacro) -> z tương đối = 0.105-0.053=0.052m
-       base_length/2=0.1485m -> x tương đối = 0.1485+0.05=0.1985m -->
+  <!-- Tạm dùng webcam USB thay IMX-219 (chưa về hàng). Đo thực tế lần 2
+       (2026-07-03, sau khi chỉnh lại để 2 mép vạch làn lọt khung hình):
+       cao 22.5cm so với mặt đất, LÙI VÀO 1.5cm so với mép trước chassis
+       (khác lần đầu: lúc đó nhô ra 5cm, cao 10.5cm, nằm ngang).
+       Nghiêng xuống ~7.5° (ƯỚC LƯỢNG, không chắc chắn — đo bằng mắt,
+       CẦN đo lại chính xác hơn nếu cần TF chuẩn).
+       base_link_z=0.053m (xem amr_core.xacro) -> z tương đối = 0.225-0.053=0.172m
+       base_length/2=0.1485m -> x tương đối = 0.1485-0.015=0.1335m -->
   <link name="camera_frame">
     <visual>
       <geometry>
@@ -19,7 +22,7 @@
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child  link="camera_frame"/>
-    <origin xyz="0.1985 0 0.052" rpy="0 0 0"/>
+    <origin xyz="0.1335 0 0.172" rpy="0 0.1309 0"/>
   </joint>
 
   <!-- Frame optical (ROS convention: z-forward, x-right, y-down) -->
