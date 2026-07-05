@@ -33,7 +33,14 @@ def generate_launch_description():
                 'canny_low':     50,
                 'canny_high':    150,
                 'hough_threshold': 30,
-                'roi_top_ratio': 0.55,
+                # roi_top_ratio=0.35 khớp vị trí camera hiện tại (cao 22.5cm,
+                # nghiêng ~7.5°, xem camera.xacro) — đo thực nghiệm 2026-07-05.
+                # Giá trị cũ 0.55 khiến ROI không bao trọn vạch làn (vạch nằm
+                # ngoài/phía trên ROI) -> mất dấu liên tục, KHÔNG phải do ánh
+                # sáng như nghi ngờ ban đầu. Verify: /lane_center_error publish
+                # ổn định 26.8Hz (khớp camera) sau khi sửa, so với 4.7-10.9Hz
+                # thất thường trước đó. CẦN đo lại nếu đổi vị trí/góc camera.
+                'roi_top_ratio': 0.35,
                 'publish_debug': LaunchConfiguration('publish_debug'),
             }],
         ),

@@ -388,7 +388,11 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 - **Phát hiện: đứng sát camera che khung hình** — người test đứng cạnh xe cầm dây theo dõi vô tình che gần hết 1 nửa khung hình camera, gây nhận diện làn chập chờn (log ghi nhận watchdog "mất dấu" kích hoạt 11 lần trong ~3 phút test). Cần đứng xa/lệch sang bên khi test, không đứng ngay trước/sát ống kính.
 - **🔴 Phát hiện bug an toàn firmware nghiêm trọng khi test thật** — xem chi tiết đầy đủ ở mục "Vấn đề đang gặp" bên dưới (watchdog `$VEL` timeout, đã sửa code `main.c` nhưng CHƯA build/nạp).
 
-**Việc tiếp theo (Lane Detection):** Build/nạp firmware watchdog fix (xem "Vấn đề đang gặp"), verify hoạt động đúng. Sau đó test lại `lane_follow_node` thật (đứng xa camera hơn), tune `canny_low/high`, `hough_threshold`, `roi_top_ratio` cho vị trí camera mới. Khi IMX-219 về: đổi driver camera sang CSI thật, đo lại vị trí lắp, giữ nguyên topic `/camera/image_raw`.
+**✅ Firmware watchdog: build/nạp + verify xong (2026-07-05)** — xe tự dừng chỉ 85ms sau khi mất kết nối phần mềm (đo bằng script Python theo dõi `/odom` chính xác theo thời gian). An toàn để tiếp tục test lái tự động.
+
+**✅ Fix ROI mismatch — nguyên nhân thật của "mất dấu làn chập chờn" (2026-07-05):** ban đầu nghi do ánh sáng vàng, nhưng xem ảnh debug phát hiện **cả 2 vạch băng dính nằm ngoài/phía trên vùng ROI** (`roi_top_ratio=0.55` cũ không còn khớp sau khi camera đổi vị trí lần 2). Đổi `roi_top_ratio` → **0.35** trong `perception.launch.py`: `/lane_center_error` từ publish thất thường 4.7-10.9Hz (có khoảng trống tới 0.9s) → **ổn định 26.8Hz**, khớp gần đúng tốc độ camera. Không phải do ánh sáng hay che khung hình như nghi ban đầu — bài học: luôn xem ảnh debug (`/lane_debug_image`) để xác nhận ROI có bao trọn vạch làn trước khi đổ lỗi cho ánh sáng/thuật toán.
+
+**Việc tiếp theo (Lane Detection):** Test `lane_follow_node` thật với ROI đã sửa (kỳ vọng ổn định hơn nhiều). Tune thêm `canny_low/high`, `hough_threshold` nếu cần. Khi IMX-219 về: đổi driver camera sang CSI thật, đo lại vị trí lắp (và `roi_top_ratio` theo đó), giữ nguyên topic `/camera/image_raw`.
 
 ### 🔧 Giai đoạn 4 — SLAM: ĐANG TRIỂN KHAI
 - [x] Cài `ros-humble-slam-toolbox` (apt, 2026-05-14)
