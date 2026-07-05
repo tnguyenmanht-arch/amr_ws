@@ -427,18 +427,19 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 
 ### Vấn đề đang gặp
 
-**🔴 NGHIÊM TRỌNG — Bug an toàn firmware, ĐÃ SỬA code, CHƯA build/nạp (2026-07-04):**
+**🔴 NGHIÊM TRỌNG — Mạch Motor Driver Hiwonder ĐÃ CHÁY (2026-07-05):**
 
-Phát hiện khi test `lane_follow_node` thật trên xe (Giai đoạn 6): kill hết node ROS trên Jetson (`serial_driver_node`, `lane_detection_node`, `lane_follow_node`) và gửi `cmd_vel=0` nhiều lần, nhưng **bánh xe vẫn quay mãi không dừng** ở tốc độ lệnh cuối cùng — chỉ dừng hẳn khi rút cáp USB STM32↔Jetson (cắt nguồn 5V cấp cho STM32).
+Sau nhiều lần motor không phản hồi qua ROS (servo vẫn OK, chỉ motor im lặng — xem lịch sử debug bên dưới), user phát hiện chip trên mạch Motor Driver bị nóng, tháo tản nhiệt ra thì **chip cháy ngay lập tức**. Đây là hỏng phần cứng vĩnh viễn, KHÔNG phải lỗi phần mềm/node kẹt như nghi ngờ trước đó.
 
-**Nguyên nhân**: watchdog nội bộ của Hiwonder Motor Driver (tự dừng motor nếu >2s không nhận lệnh I2C) bị vô hiệu hóa vì STM32 đọc encoder qua I2C **mỗi 10ms trong main loop, bất kể có `$VEL` mới từ Jetson hay không** (`DRV_Motor_GetEncoder` chạy độc lập, không phụ thuộc `APP_Comm_Parse`/`on_cmd_vel`). Vì vậy dù Jetson ngừng gửi lệnh hoàn toàn (crash, kill node, rút cáp USART2), STM32 vẫn liên tục có traffic I2C tới Hiwonder → watchdog phần cứng đó không bao giờ kích hoạt → motor giữ nguyên tốc độ lệnh cuối cùng **vô thời hạn**.
+**Lịch sử debug dẫn tới phát hiện này** (để tránh hiểu nhầm lại là lỗi phần mềm):
+- 2026-07-04: motor không phản hồi khi test `lane_follow_node` lần đầu → nghi driver hỏng do quá nhiệt (đèn báo tắt) → rút nguồn để nguội → sau đó test lại thấy chạy được qua serial thô + restart `serial_driver_node` sạch → tưởng đã khỏi (chỉ là node ROS bị kẹt state, không phải hỏng thật)
+- 2026-07-05: build+nạp firmware watchdog xong, verify OK (dừng trong 85ms). Nhưng khi test lại `lane_follow_node` thật, motor lại không phản hồi (servo vẫn OK) — lần này restart `serial_driver_node` sạch KHÔNG khắc phục được (khác hẳn mẫu hình hôm trước) → đúng lúc này phát hiện chip cháy khi tháo tản nhiệt.
 
-**Đã sửa trong code** (`firmware/Core/Src/main.c`, 2026-07-04): thêm watchdog riêng ở tầng ứng dụng —
-- Biến `last_vel_rx_ms` ghi lại mốc thời gian mỗi khi `on_cmd_vel()` nhận được `$VEL` hợp lệ
-- Trong vòng lặp chính, nếu `(now - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS` (300ms, **CẦN TUNE thực nghiệm**) thì STM32 tự gọi `DRV_Motor_SetSpeed(0, 0)` — không chờ/dựa vào watchdog I2C của Hiwonder nữa
-- Cờ `vel_watchdog_tripped` tránh gọi lặp lại mỗi vòng lặp; reset về 0 khi có `$VEL` mới (cho phép watchdog kích hoạt lại nếu mất kết nối lần sau)
+**Kết luận**: mạch Motor Driver Hiwonder cần **thay mới** — không sửa được bằng phần mềm. Việc quá nhiệt lặp lại nhiều lần (dù có tản nhiệt) gợi ý có thể motor bị quá tải liên tục (kẹt cơ khí, tải nặng hơn thiết kế, hoặc driver đã suy yếu từ lần quá nhiệt đầu 2026-07-04) — cân nhắc kiểm tra kỹ tải cơ khí trước khi lắp driver mới.
 
-**⚠️ CHƯA build/nạp firmware này lên STM32 thật** — code mới chỉ sửa trên Jetson (`firmware/Core/Src/main.c` trong repo), cần build + flash từ máy Windows (STM32CubeIDE) rồi test lại xác nhận: (1) xe vẫn chạy bình thường khi có lệnh liên tục, (2) xe **tự dừng trong ~300ms** khi ngắt kết nối Jetson (thử bằng cách kill node/rút cáp USART2 lúc xe đang chạy chậm, quan sát bánh có dừng đúng ~0.3s không).
+**✅ Đã hoàn thành trước khi phát hiện hỏng (vẫn còn giá trị, không cần làm lại khi có driver mới):**
+- Firmware watchdog `$VEL` timeout: build/nạp + verify xong (dừng trong 85ms khi mất kết nối)
+- Lane detection: sửa `roi_top_ratio` (0.35) + `canny_low/high` (20/60) khớp vị trí camera + ánh sáng hiện tại, `/lane_center_error` ổn định 26.8Hz — xem Giai đoạn 6
 
 **Việc tiếp theo**: build/nạp firmware, verify watchdog hoạt động đúng, rồi mới tiếp tục test `lane_follow_node` thật. Khi test lại, đứng xa/lệch sang bên thay vì đứng sát ống kính camera (đã phát hiện: đứng sát che khung hình gây nhận diện làn chập chờn).
 
