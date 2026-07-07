@@ -1,0 +1,344 @@
+<title>AMR Wiring Reference — STM32F411 Black Pill</title>
+<style>
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171c;
+      --bg-raised: #1b1f26;
+      --ink: #e9e7e0;
+      --ink-dim: #9aa1ab;
+      --line: #2a2f38;
+      --accent: #d99a55;
+      --accent-ink: #1b1108;
+      --power: #e2665c;
+      --power-bg: #3a2220;
+      --ground: #5fae82;
+      --ground-bg: #1d2f26;
+      --signal: #6fa3e6;
+      --signal-bg: #1c2836;
+      --warn: #e2665c;
+      --warn-bg: #3a2220;
+      --warn-border: #7a3a34;
+    }
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f2e9;
+      --bg-raised: #fffdf8;
+      --ink: #211d16;
+      --ink-dim: #6b6459;
+      --line: #ddd4c2;
+      --accent: #a85f22;
+      --accent-ink: #fff8ef;
+      --power: #b23a30;
+      --power-bg: #f6e2df;
+      --ground: #2f7a52;
+      --ground-bg: #e2efe6;
+      --signal: #2f5fa8;
+      --signal-bg: #e2ebf7;
+      --warn: #b23a30;
+      --warn-bg: #f6e2df;
+      --warn-border: #d9b3ae;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c; --bg-raised: #1b1f26; --ink: #e9e7e0; --ink-dim: #9aa1ab; --line: #2a2f38;
+    --accent: #d99a55; --accent-ink: #1b1108;
+    --power: #e2665c; --power-bg: #3a2220;
+    --ground: #5fae82; --ground-bg: #1d2f26;
+    --signal: #6fa3e6; --signal-bg: #1c2836;
+    --warn: #e2665c; --warn-bg: #3a2220; --warn-border: #7a3a34;
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f2e9; --bg-raised: #fffdf8; --ink: #211d16; --ink-dim: #6b6459; --line: #ddd4c2;
+    --accent: #a85f22; --accent-ink: #fff8ef;
+    --power: #b23a30; --power-bg: #f6e2df;
+    --ground: #2f7a52; --ground-bg: #e2efe6;
+    --signal: #2f5fa8; --signal-bg: #e2ebf7;
+    --warn: #b23a30; --warn-bg: #f6e2df; --warn-border: #d9b3ae;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, "Segoe UI", system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    padding: 2.5rem 1.25rem 5rem;
+  }
+  .page { max-width: 880px; margin: 0 auto; }
+
+  .mono {
+    font-family: ui-monospace, "Cascadia Code", "SF Mono", Consolas, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  header.top { margin-bottom: 2.25rem; }
+  .eyebrow {
+    font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 0.5rem;
+  }
+  h1 {
+    font-size: clamp(1.6rem, 4vw, 2.1rem); margin: 0 0 0.4rem; letter-spacing: -0.01em;
+    text-wrap: balance; font-weight: 800;
+  }
+  .sub { color: var(--ink-dim); font-size: 0.98rem; margin: 0; max-width: 60ch; }
+
+  section { margin-top: 2.75rem; }
+  h2 {
+    font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--line); padding-bottom: 0.5rem; margin: 0 0 1.1rem;
+    display: flex; align-items: baseline; gap: 0.6rem;
+  }
+  h2 .num { color: var(--accent); font-family: ui-monospace, monospace; font-size: 0.9rem; }
+  h3 { font-size: 0.95rem; margin: 1.6rem 0 0.6rem; color: var(--ink); }
+  p { margin: 0.5rem 0; }
+
+  .callout {
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    border-left: 4px solid var(--warn); border-radius: 6px;
+    padding: 1rem 1.2rem; margin: 1.2rem 0;
+  }
+  .callout .label {
+    font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--warn); font-weight: 700; margin-bottom: 0.35rem;
+  }
+  .callout p { margin: 0.3rem 0; }
+  .callout ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; min-width: 420px; }
+  thead th {
+    text-align: left; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink-dim); font-weight: 600; padding: 0.6rem 0.85rem;
+    background: var(--bg-raised); border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 0.55rem 0.85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-raised); }
+
+  .pin { font-family: ui-monospace, monospace; font-weight: 600; }
+  .tag {
+    display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+    padding: 0.15rem 0.45rem; border-radius: 4px; text-transform: uppercase;
+  }
+  .tag.power { background: var(--power-bg); color: var(--power); }
+  .tag.ground { background: var(--ground-bg); color: var(--ground); }
+  .tag.signal { background: var(--signal-bg); color: var(--signal); }
+
+  /* Star ground diagram */
+  .star {
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px;
+    padding: 2rem 1.5rem; margin: 1.2rem 0;
+  }
+  .star-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9rem 1.4rem;
+    max-width: 640px; margin: 0 auto;
+  }
+  .star-hub {
+    grid-column: 1 / -1; justify-self: center;
+    background: var(--ground-bg); color: var(--ground); border: 1.5px solid var(--ground);
+    border-radius: 8px; padding: 0.7rem 1.3rem; font-weight: 700; font-size: 0.9rem;
+    text-align: center; margin-bottom: 0.4rem;
+  }
+  .star-leg {
+    position: relative; text-align: center; padding-top: 1.6rem;
+  }
+  .star-leg::before {
+    content: ""; position: absolute; top: 0; left: 50%; width: 1.5px; height: 1.3rem;
+    background: var(--ground); opacity: 0.55;
+  }
+  .star-leg .box {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 0.55rem 0.6rem; font-size: 0.82rem;
+  }
+  .star-leg .box strong { display: block; font-size: 0.85rem; margin-bottom: 0.15rem; }
+  .star-leg .box span { color: var(--ink-dim); font-size: 0.76rem; }
+  .star-note { text-align: center; color: var(--ink-dim); font-size: 0.8rem; margin-top: 1rem; }
+
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li {
+    display: flex; gap: 0.7rem; padding: 0.55rem 0; border-bottom: 1px solid var(--line);
+    font-size: 0.93rem;
+  }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist .n {
+    flex: none; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 0.78rem;
+    display: flex; align-items: center; justify-content: center; font-family: ui-monospace, monospace;
+  }
+
+  .legend { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 0.8rem 0 0; font-size: 0.82rem; color: var(--ink-dim); }
+  .legend .dot { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 50%; margin-right: 0.35rem; }
+
+  footer { margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--ink-dim); font-size: 0.82rem; }
+</style>
+
+<div class="page">
+  <header class="top">
+    <p class="eyebrow">AMR Ackermann — HUST Automotive Engineering</p>
+    <h1>Sơ đồ đấu dây STM32F411 (Black Pill)</h1>
+    <p class="sub">Tổng hợp toàn bộ pin, phân phối nguồn, và cách nối GND kiểu star — sau sự cố hỏng 2 board STM32 do stress điện áp tích lũy. Làm đúng thứ tự, không rút gọn bước nào.</p>
+  </header>
+
+  <div class="callout" style="--warn: var(--signal); --warn-bg: var(--signal-bg); --warn-border: var(--signal);">
+    <div class="label">Nguồn 5V cho R_EN/L_EN — dùng module hạ áp riêng</div>
+    <p>Black Pill vẫn cấp nguồn qua <strong>ST-Link chân 3.3V</strong> như thiết lập ban đầu — không đụng tới chân 5V/VIN mơ hồ trên board, tránh rủi ro đoán nhầm chân.</p>
+    <p>5V cho R_EN/L_EN lấy từ <strong>module hạ áp 12V→5V riêng</strong> (đã có sẵn), cấp thẳng từ rail 12V — độc lập hoàn toàn với Black Pill/ST-Link. GND của module này vẫn là 1 nhánh trong sơ đồ star ở mục 02, không tạo điểm mass mới.</p>
+  </div>
+
+  <section>
+    <h2><span class="num">01</span>Bảng chân STM32F411</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Chân</th><th>Chức năng</th><th>Nối tới</th><th>Loại</th></tr></thead>
+        <tbody>
+          <tr><td class="pin">PA6</td><td class="mono">TIM3_CH1</td><td>RPWM — board trái</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA7</td><td class="mono">TIM3_CH2</td><td>LPWM — board trái</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB0</td><td class="mono">TIM3_CH3</td><td>RPWM — board phải</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB1</td><td class="mono">TIM3_CH4</td><td>LPWM — board phải</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA0</td><td class="mono">TIM2_CH1</td><td>Encoder trái — kênh A</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA1</td><td class="mono">TIM2_CH2</td><td>Encoder trái — kênh B</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB6</td><td class="mono">TIM4_CH1</td><td>Encoder phải — kênh A <em>(đổi từ PC6 trên F446)</em></td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB7</td><td class="mono">TIM4_CH2</td><td>Encoder phải — kênh B <em>(đổi từ PC7 trên F446)</em></td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA9</td><td class="mono">USART1_TX</td><td>Servo SIG — qua trở 1KΩ</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA10</td><td class="mono">USART1_RX</td><td>Servo SIG — nối thẳng (cùng node PA9)</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA2</td><td class="mono">USART2_TX</td><td>Jetson RX / CH340 RX (lúc test)</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA3</td><td class="mono">USART2_RX</td><td>Jetson TX / CH340 TX (lúc test)</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">SWCLK / SWDIO</td><td class="mono">SWD</td><td>ST-Link — nạp code</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">3V3</td><td class="mono">VDD</td><td>ST-Link 3.3V — cấp nguồn logic cho chip</td><td><span class="tag power">Power</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">02</span>Nối GND kiểu Star</h2>
+    <p>Không để dòng lớn (motor) và GND logic (STM32) đi chung 1 đoạn dây. Mỗi nhánh GND đi <strong>thẳng, riêng biệt</strong> về 1 <strong>thanh terminal block nhỏ</strong> (điểm gốc vật lý) — rồi chỉ <strong>1 dây duy nhất</strong> từ thanh đó ra cực (–) thật của pin 12V. Đây là điểm khác biệt lớn nhất so với cách đấu cũ (GND đi xuyên qua chân board BTS7960 rồi mới ra pin — gây hỏng board 2 lần).</p>
+
+    <div class="star">
+      <div class="star-grid">
+        <div class="star-hub">Thanh terminal GND (bus bar) — 1 dây duy nhất ra cực (–) Pin 12V</div>
+        <div class="star-leg"><div class="box"><strong>STM32 GND</strong><span>dây riêng, không qua board nào khác</span></div></div>
+        <div class="star-leg"><div class="box"><strong>BTS7960 trái</strong><span>B- + GND logic</span></div></div>
+        <div class="star-leg"><div class="box"><strong>BTS7960 phải</strong><span>B- + GND logic</span></div></div>
+        <div class="star-leg"><div class="box"><strong>Servo GND</strong><span>dây riêng</span></div></div>
+        <div class="star-leg"><div class="box"><strong>Encoder trái GND</strong><span>dây riêng</span></div></div>
+        <div class="star-leg"><div class="box"><strong>Encoder phải GND</strong><span>dây riêng</span></div></div>
+      </div>
+      <p class="star-note">6 nhánh độc lập — không nhánh nào nối tiếp qua nhánh khác trước khi về điểm gốc</p>
+    </div>
+
+    <div class="callout" style="--warn: var(--ground); --warn-bg: var(--ground-bg); --warn-border: var(--ground);">
+      <div class="label">Vì sao phải làm vậy</div>
+      <p>Nếu GND của STM32 đi chung dây với GND của board BTS7960 (nơi dòng motor lớn chạy qua), dòng lớn đó gây sụt áp cục bộ trên chính đoạn dây chung — điện thế "GND" mà STM32 nhìn thấy không còn thực sự là 0V nữa. Chênh lệch này tạo dòng rò qua chân GPIO, tích lũy nhiệt qua nhiều giờ test — nghi vấn chính cho việc hỏng 2 board STM32 vừa qua.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">03</span>Phân phối nguồn</h2>
+    <p>Dùng breadboard/terminal nhỏ làm điểm chia cho mỗi rail — <strong>mỗi lỗ chỉ 1 dây</strong>, không nhét nhiều dây chung 1 lỗ.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Rail</th><th>Nguồn</th><th>Cấp cho</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="tag power">12V</span></td>
+            <td>Pin 3S2P (qua BMS)</td>
+            <td>B+ board trái · B+ board phải · VIN servo</td>
+          </tr>
+          <tr>
+            <td><span class="tag power">5V</span></td>
+            <td>Module hạ áp 12V→5V riêng (độc lập với Black Pill)</td>
+            <td>VCC + R_EN + L_EN — cả 2 board BTS7960</td>
+          </tr>
+          <tr>
+            <td><span class="tag signal">3.3V</span></td>
+            <td>ST-Link (chân 3V3 của Black Pill)</td>
+            <td>VCC encoder trái · VCC encoder phải</td>
+          </tr>
+          <tr>
+            <td><span class="tag ground">GND</span></td>
+            <td>Cực (–) pin 12V</td>
+            <td>Theo sơ đồ star ở mục 02 — <strong>không dùng rail chung kiểu daisy-chain</strong></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">04</span>Từng thiết bị</h2>
+
+    <h3>BTS7960 — board trái</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>B+</td><td>Rail 12V</td></tr>
+          <tr><td>B-</td><td>Dây riêng → thanh terminal GND</td></tr>
+          <tr><td>VCC</td><td>Rail 5V</td></tr>
+          <tr><td>GND (logic)</td><td>Dây riêng → thanh terminal GND</td></tr>
+          <tr><td>R_EN, L_EN</td><td>Rail 5V (không bắt buộc nối chung nhau, chỉ cần cùng chạm 5V)</td></tr>
+          <tr><td>RPWM</td><td class="pin">PA6</td></tr>
+          <tr><td>LPWM</td><td class="pin">PA7</td></tr>
+          <tr><td>M+, M-</td><td>2 dây động lực motor trái (không phân biệt chiều)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>BTS7960 — board phải</h3>
+    <p>Giống hệt board trái, đổi <span class="pin">RPWM → PB0</span>, <span class="pin">LPWM → PB1</span>, M+/M- → motor phải, GND/B- vẫn là nhánh star riêng của board này.</p>
+
+    <h3>Encoder (đấu thẳng vào STM32, không qua BTS7960)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Dây</th><th>Trái</th><th>Phải</th></tr></thead>
+        <tbody>
+          <tr><td>VCC</td><td>Rail 3.3V</td><td>Rail 3.3V</td></tr>
+          <tr><td>GND</td><td>Nhánh star riêng</td><td>Nhánh star riêng</td></tr>
+          <tr><td>Kênh A</td><td class="pin">PA0</td><td class="pin">PB6</td></tr>
+          <tr><td>Kênh B</td><td class="pin">PA1</td><td class="pin">PB7</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Servo HTS-20H</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>VIN</td><td>Rail 12V</td></tr>
+          <tr><td>GND</td><td>Nhánh star riêng</td></tr>
+          <tr><td>SIG</td><td>Node giữa <span class="pin">PA10</span> và trở 1KΩ (trở còn lại nối <span class="pin">PA9</span>)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>CH340 (chỉ dùng lúc test qua máy tính)</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><td>TX</td><td class="pin">PA3</td></tr>
+          <tr><td>RX</td><td class="pin">PA2</td></tr>
+          <tr><td>GND</td><td>GND chung</td></tr>
+          <tr><td>VCC</td><td>Không nối — board đã có nguồn từ ST-Link</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="num">05</span>Thứ tự lắp & cấp điện</h2>
+    <ol class="checklist">
+      <li><span class="n">1</span>Lắp điểm phân phối nguồn (breadboard/terminal) — chưa cắm nguồn thật</li>
+      <li><span class="n">2</span>Đấu toàn bộ 6 nhánh GND theo sơ đồ star trước tiên — đo thông mạch giữa các điểm GND (~0Ω)</li>
+      <li><span class="n">3</span>Đấu dây tín hiệu (PWM, encoder, USART) — mỗi chân STM32 đúng 1 dây, cắm thẳng hết cỡ</li>
+      <li><span class="n">4</span>Đo điện trở B+/B- từng board BTS7960 (chưa cấp gì) — phải cao, không chập</li>
+      <li><span class="n">5</span>Cấp ST-Link (3.3V cho Black Pill) và module hạ áp (5V cho R_EN/L_EN) — đo lại từng rail xác nhận đúng giá trị</li>
+      <li><span class="n">6</span>Cuối cùng mới cấp 12V vào rail chính — sờ thử STM32 sau 10-15 giây đầu, dừng ngay nếu ấm bất thường</li>
+    </ol>
+  </section>
+
+  <footer>
+    Cập nhật theo phiên debug BTS7960 + migration F446 → F411. Xem <span class="mono">CLAUDE.md</span> mục 8 để biết lịch sử đầy đủ.
+  </footer>
+</div>

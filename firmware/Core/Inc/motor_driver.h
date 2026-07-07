@@ -8,56 +8,39 @@ extern "C" {
 #include "main.h"
 #include <stdint.h>
 
-/* ===== Địa chỉ I2C =====
- * Hiwonder 4-Ch Encoder Motor Driver, địa chỉ mặc định 0x34 (7-bit)
- * HAL_I2C_Mem_Write/Read dùng định dạng 8-bit (địa chỉ đã shift trái 1 bit) */
-#define MOTOR_DRV_ADDR_7BIT     0x34
-#define MOTOR_DRV_I2C_ADDR      (MOTOR_DRV_ADDR_7BIT << 1)
-
-/* ===== Register map =====
- * Tham khảo tài liệu Hiwonder 4-Ch Encoder Motor Driver
- * Cần xác nhận lại số byte mỗi register với phần cứng thực tế */
-#define REG_MOTOR_TYPE          0x14    /* Loại motor: 3 = JGB37-520R90 */
-#define REG_ENCODER_POLARITY    0x15    /* Chiều encoder: 0 = thuận */
-#define REG_FIXED_SPEED         0x33    /* Tốc độ closed-loop: -100 ~ 100 */
-#define REG_ENCODER_TOTAL       0x3C    /* Tổng xung encoder (int32/kênh, ghi 0 để reset) */
-
-/* Loại motor JGB37-520 với gear ratio 90:1 */
-#define MOTOR_TYPE_JGB37_520R90     3
-#define MOTOR_NUM_CHANNELS          4   /* Board hỗ trợ 4 kênh, ta dùng 2 */
-
-/* Timeout I2C (ms) */
-#define MOTOR_I2C_TIMEOUT_MS        100
-
-/* ===== Trạng thái I2C của lần đọc encoder gần nhất (debug, giữ lại) =====
- * 0=OK, 1=NAK addr+W, 2=NAK reg, 3=NAK addr+R */
-extern volatile uint8_t  g_last_enc_i2c_err;
-extern volatile uint32_t g_last_enc_i2c_ec;
-extern volatile char     g_last_enc_i2c_step;
+/* ===== Driver: BTS7960 (RPWM/LPWM), điều khiển qua TIM3 =====
+ * Trái  : RPWM=PA6 (TIM3_CH1), LPWM=PA7 (TIM3_CH2)
+ * Phải  : RPWM=PB0 (TIM3_CH3), LPWM=PB1 (TIM3_CH4)
+ * R_EN/L_EN của cả 2 board nối cứng lên 3.3V (luôn bật), không điều khiển từ STM32.
+ *
+ * Encoder JGB37-520 đấu THẲNG vào STM32 (không qua BTS7960):
+ * Trái  : A=PA0, B=PA1  -> TIM2 encoder mode (32-bit)
+ * Phải  : A=PC6, B=PC7  -> TIM8 encoder mode (16-bit, cần cộng dồn tràn số trong code)
+ */
 
 /**
- * @brief  Khởi tạo motor driver: cài motor type, encoder polarity, reset encoder.
- * @note   Gọi 1 lần sau MX_I2C1_Init() trong main.c.
- *         Kênh 1 = bánh trái, kênh 2 = bánh phải (điều chỉnh nếu đấu dây ngược).
+ * @brief  Khởi tạo motor driver: start PWM (duty=0) + start encoder timers.
+ * @note   Gọi 1 lần sau MX_TIM2_Init()/MX_TIM3_Init()/MX_TIM8_Init() trong main.c.
  */
 HAL_StatusTypeDef DRV_Motor_Init(void);
 
 /**
- * @brief  Đặt tốc độ closed-loop cho 2 bánh.
+ * @brief  Đặt tốc độ cho 2 bánh (điều khiển RPWM/LPWM của BTS7960).
  * @param  left   Tốc độ bánh trái:  -100 (lùi full) .. 0 .. 100 (tiến full)
  * @param  right  Tốc độ bánh phải: -100 (lùi full) .. 0 .. 100 (tiến full)
+ * @note   Nếu bánh chạy ngược chiều mong muốn, đảo dấu ở đây (không cần tháo dây).
  */
 HAL_StatusTypeDef DRV_Motor_SetSpeed(int8_t left, int8_t right);
 
 /**
- * @brief  Đọc tổng xung encoder từ 2 bánh.
+ * @brief  Đọc tổng xung encoder tích lũy từ 2 bánh.
  * @param  left   [out] Xung encoder bánh trái  (int32, tích lũy)
  * @param  right  [out] Xung encoder bánh phải (int32, tích lũy)
  */
 HAL_StatusTypeDef DRV_Motor_GetEncoder(int32_t *left, int32_t *right);
 
 /**
- * @brief  Reset encoder về 0 (ghi 0 vào REG_ENCODER_TOTAL).
+ * @brief  Reset encoder về 0 (cả bộ đếm phần cứng lẫn biến cộng dồn phần mềm).
  */
 HAL_StatusTypeDef DRV_Motor_ResetEncoder(void);
 

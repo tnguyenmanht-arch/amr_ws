@@ -12,15 +12,17 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 **Kiến trúc hệ thống:**
 
 ```
-[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F446RE Nucleo-64]
+[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F411CEU6 "Black Pill"]
         (ROS2 Master)                              (Low-level Slave)
         ↑            ↑                              ↑                    ↑
-  IMX-219 Camera  RPLidar A1M8        [Hiwonder 4-Ch Motor Driver]  USART1 (single-wire)
-  (lane detect)   (SLAM/Nav)              I2C ↓                     qua điện trở nối tiếp ↓
-                                     JGB37-520 Motors              HTS-20H Servo
+  IMX-219 Camera  RPLidar A1M8        [BTS7960 x2 (1 board/motor)]   USART1 (single-wire)
+  (lane detect)   (SLAM/Nav)          PWM (TIM3) + Encoder (TIM2/TIM4) ↓  qua điện trở nối tiếp ↓
+                                     JGB37-520 Motors              HTS-20H Servo (ID=9)
                                       (drive wheels)                (steering)
 ```
 > Servo lái nối **thẳng** vào STM32 (không qua TTL Bus Servo Debugging Board — board này đã hỏng, xem mục 8).
+> Motor driver **Hiwonder 4-Ch (I2C) đã cháy 2026-07-05, thay bằng BTS7960 x2 (PWM+DIR)** — encoder đấu thẳng vào STM32 qua TIM hardware Encoder Mode, không còn I2C/bit-bang. Xem mục 8.
+> **STM32 slave đã đổi từ F446RE Nucleo-64 sang F411CEU6 "Black Pill" (2026-07-07)** — 2 board F446RE liên tiếp hỏng (nghi do stress điện áp/rò AC tích lũy qua nhiều giờ test), chuyển hẳn sang F411 rời + ST-Link ngoài. Firmware nằm ở `amr_stm32f411/` (project `firmware/` cũ giữ lại làm tham khảo lịch sử/board F446, không còn build/nạp). Xem mục 8 "Migration F446 → F411".
 
 ---
 
@@ -33,32 +35,32 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 - Giao tiếp với slave: UART hoặc USB-Serial
 - Thư viện NVIDIA có thể dùng: Isaac ROS, DeepStream, TensorRT (nếu phần cứng đủ điều kiện)
 
-### Slave: STM32F446RE Nucleo-64
-- Firmware: STM32CubeIDE / PlatformIO
-- Nhiệm vụ: nhận cmd_vel → điều khiển motor (I2C), đọc encoder, điều khiển servo qua single-wire trực tiếp
+### Slave: STM32F411CEU6 "Black Pill" (rời, không phải Nucleo)
+- Firmware: STM32CubeIDE, project tại `amr_stm32f411/` — **project mới tạo từ đầu** (không phải generate lại từ F446), xem bài học NVIC ở mục 8
+- Nạp/debug: **ST-Link V2 rời** (không tích hợp trên board như Nucleo) — cắm SWCLK/SWDIO/GND + nguồn (3.3V từ ST-Link hoặc 5V ngoài) vào header SWD của Black Pill
+- **Không có cổng UART ảo tích hợp** (khác Nucleo) — khi cần test `$VEL`/`$ODO` qua máy tính (thay vì Jetson), phải dùng thêm **module USB-to-TTL CH340 rời** nối PA2/PA3
+- Nhiệm vụ: nhận cmd_vel → điều khiển motor (PWM+DIR qua BTS7960), đọc encoder (TIM hardware Encoder Mode), điều khiển servo qua single-wire trực tiếp
 - Giao thức với master: custom UART protocol qua USART2
+- Clock: **HSI nội bộ** (không cần thạch anh ngoài), PLL lên **100MHz** (PLLM=8, PLLN=100, PLLP=DIV2, PLLQ=4)
 
 **Pin assignments đã xác nhận:**
 | Peripheral | Pins | Kết nối |
 |---|---|---|
-| I2C1 | PB8 (SCL), PB9 (SDA) | Hiwonder 4-Ch Motor Driver |
-| USART2 | PA2 (TX), PA3 (RX) | Jetson Orin Nano, 115200 baud |
+| TIM3 CH1-CH4 | PA6, PA7, PB0, PB1 | PWM: RPWM/LPWM trái (PA6/PA7), RPWM/LPWM phải (PB0/PB1) → BTS7960 x2, 20kHz (ARR=4999 ở 100MHz timer clock — **khác 4499 của F446**, tính lại theo clock mới) |
+| TIM2 (Encoder Mode TI12) | PA0, PA1 | Encoder trái (A/B), 32-bit counter — đấu thẳng vào STM32, không qua BTS7960 |
+| TIM4 (Encoder Mode TI12) | PB6, PB7 | Encoder phải (A/B), 16-bit counter (cộng dồn tràn số trong `motor_driver.c`) — **đổi từ TIM8/PC6-PC7 của F446** vì F411 không có TIM8 |
+| USART2 | PA2 (TX), PA3 (RX) | Jetson Orin Nano, 115200 baud — lúc test bàn dùng CH340 rời (TX↔PA3, RX↔PA2, GND chung) |
 | USART1 | PA9 (TX), PA10 (RX) | PA9 qua điện trở ~1kΩ + PA10 nối thẳng → dây SIG của HTS-20H (single-wire half-duplex, không qua debug board) |
 
-**Motor Driver (I2C) — Registers quan trọng:**
-| Register | Addr | Giá trị | Mô tả |
-|---|---|---|---|
-| MOTOR_TYPE | `0x14` | `3` (JGB37-520R90) | Loại motor |
-| ENCODER_POLARITY | `0x15` | `0` | Chiều encoder |
-| FIXED_SPEED | `0x33` | `-100 ~ 100` | Closed-loop speed |
-| ENCODER_TOTAL | `0x3C` | đọc pulse / ghi `0` reset | Odometry |
+> I2C1 **không dùng tới** trên project F411 (project mới tạo từ đầu, không bật I2C ngay từ lúc cấu hình CubeMX, khác F446 phải tắt thủ công).
 
 ### Cơ cấu chấp hành
 | Thiết bị | Model | Giao tiếp | Ghi chú |
 |---|---|---|---|
-| Drive Motor (×2) | JGB37-520 DC w/ Encoder | PWM + DIR + Encoder | 12V, đọc encoder 11 PPR × gear ratio: 90:1 |
-| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (TTL, single-wire) | Góc lái Ackermann; STM32 nối **thẳng** qua điện trở nối tiếp (xem mục 8) |
-| Motor Driver | 4-Ch Encoder Motor Driver Hiwonder | I2C | Mạch module sẵn của Hiwonder |
+| Drive Motor (×2) | JGB37-520 DC w/ Encoder | PWM (TIM3) + Encoder (TIM2/TIM8) | 12V, dòng stall ~2.3A, gear ratio 90:1 |
+| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (TTL, single-wire) | Góc lái Ackermann; STM32 nối **thẳng** qua điện trở nối tiếp (xem mục 8). **`SERVO_ID=9`** (servo hiện tại, không phải mặc định 1 — servo cũ khả năng hỏng, đổi sang con khác lúc migration F411) |
+| Motor Driver (×2, 1/motor) | BTS7960 43A module | PWM (RPWM/LPWM) + DIR (R_EN/L_EN) | Thay Hiwonder đã cháy — margin dòng rộng (~10A liên tục an toàn vs 2.3A stall). R_EN/L_EN **PHẢI nối 5V** (không phải 3.3V — xem mục 8) |
+| ~~Motor Driver Hiwonder~~ | ~~4-Ch Encoder Motor Driver~~ | ~~I2C~~ | **ĐÃ CHÁY 2026-07-05, không dùng nữa** — xem mục 8 |
 | ~~TTL Bus Servo Board~~ | ~~Hiwonder TTL Bus Servo Debugging Board~~ | — | **ĐÃ HỎNG, không dùng nữa** — thay bằng đấu trực tiếp STM32↔servo |
 
 ### Cảm biến
@@ -88,11 +90,18 @@ amr_ws/
 │   ├── amr_slam/           ← CHƯA
 │   ├── amr_navigation/     ← CHƯA
 │   └── amr_perception/     ← CHƯA
-├── firmware/               ← STM32 firmware (build trên Windows)
-│   ├── Core/Src/           ← Application code
+├── firmware/               ← STM32 firmware CŨ (F446RE, đã hỏng — giữ tham khảo lịch sử, KHÔNG build/nạp nữa)
+│   ├── Core/Src/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32.ioc
+├── amr_stm32f411/          ← STM32 firmware HIỆN TẠI (F411 Black Pill, build trên Windows)
+│   ├── Core/Src/           ← Application code
+│   ├── Core/Inc/
+│   ├── Drivers/
+│   └── amr_stm32f411.ioc
+├── docs/
+│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 (pin table, star ground, phân phối nguồn)
 ├── CLAUDE.md
 └── README.md
 ```
@@ -255,6 +264,27 @@ screen /dev/ttyUSB0 115200
 minicom -D /dev/ttyUSB0 -b 115200
 ```
 
+### STM32 build/flash (Windows, F411 hiện tại)
+
+```bash
+# Build headless (workspace đã import sẵn project amr_stm32f411)
+"C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/stm32cubeidec.exe" --launcher.suppressErrors -nosplash \
+  -application org.eclipse.cdt.managedbuilder.core.headlessbuild \
+  -data "c:/Users/admin/STM32CubeIDE/workspace_2.1.1" \
+  -cleanBuild amr_stm32f411
+
+# Nạp qua ST-Link rời (không phải ST-Link tích hợp Nucleo)
+"C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/tools/bin/STM32_Programmer_CLI.exe" \
+  -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f411/Debug/amr_stm32f411.elf" -v -rst
+
+# Kiểm tra ST-Link + cổng UART (CH340) đang nhận diện
+STM32_Programmer_CLI.exe -l
+
+# Đọc thanh ghi qua SWD để chẩn đoán "không phản hồi" (xem mục 8, bug NVIC)
+STM32_Programmer_CLI.exe -c port=SWD -r32 0x4000440C 1   # USART2->CR1
+STM32_Programmer_CLI.exe -c port=SWD -r32 0x40023830 1   # RCC->AHB1ENR
+```
+
 ---
 
 ## 7. Hướng dẫn cho Claude — Quy tắc làm việc
@@ -343,6 +373,65 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 - **Lưu ý nếu tái tạo mạch này**: R quá lớn (>~4.7kΩ) có thể làm tín hiệu yếu ở baud 115200; nếu servo không phản hồi, thử giảm R hoặc hạ `GPIO_SPEED_FREQ_VERY_HIGH` → `LOW` cho PA9/PA10 (bài học từ vụ I2C bit-bang ở trên)
 - **Test tổ hợp (2026-07-02)**: gửi `$VEL` với `linear_x` VÀ `angular_z` khác 0 cùng lúc (motor chạy + servo đánh lái đồng thời) → encoder tăng đều 2 bánh khớp nhau, servo giữ đúng góc, **0 glitch** — xác nhận bit-bang I2C và UART1 servo không tranh chấp nhau trong cùng vòng loop 10ms. Firmware layer coi như đã chốt xong.
 
+> ⚠️ **Toàn bộ phần I2C bit-bang ở trên đã LỖI THỜI kể từ 2026-07-05** (Hiwonder driver cháy, thay bằng BTS7960 — xem "Migration sang BTS7960" bên dưới). Giữ lại để tham khảo lịch sử/bài học bit-bang I2C nói chung, không còn áp dụng cho `motor_driver.c` hiện tại.
+
+**🔧 Migration sang BTS7960 (PWM+DIR) — thay thế hoàn toàn I2C (2026-07-06):**
+
+Sau khi Hiwonder driver cháy (xem "Vấn đề đang gặp"), viết lại toàn bộ `motor_driver.c`/`.h` sang kiến trúc PWM+Encoder-hardware, **API công khai giữ nguyên** (`DRV_Motor_Init/SetSpeed/GetEncoder/ResetEncoder`) nên `main.c`/`ackermann.c`/`jetson_comm.c` không cần sửa dòng nào:
+- **PWM**: TIM3 4 kênh (CH1-CH4 = PA6/PA7/PB0/PB1), Clock Source=Internal, Slave Mode=Disable, Prescaler=0, **Counter Period=4499** (→ PWM 20kHz với timer clock 90MHz — lưu ý CubeMX mặc định để Period=65535, PHẢI tự đổi tay, dễ quên)
+- **Encoder**: TIM2 (trái, 32-bit, EncoderMode=**TI12** không phải TI1) + TIM8 (phải, 16-bit, cộng dồn tràn số bằng delta 16-bit trong `DRV_Motor_GetEncoder`) — đấu thẳng 2 dây A/B của JGB37-520 vào STM32, KHÔNG qua BTS7960, loại bỏ hoàn toàn I2C bit-bang
+- Build headless: `stm32cubeidec.exe -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data <workspace> -cleanBuild amr_stm32`; flash: `STM32_Programmer_CLI.exe -c port=SWD -w <elf> -v -rst`
+
+**Bài học phần cứng khi đấu BTS7960 (rất tốn thời gian debug, ghi lại tránh lặp):**
+1. **R_EN/L_EN của BTS7960 phải nối 5V, KHÔNG phải 3.3V** — dù datasheet ghi chấp nhận 3.3-5V, nhiều board clone dùng opto-coupler có điện trở giới hạn dòng tính sẵn cho 5V; cấp 3.3V dòng qua LED opto không đủ để board nhận chắc chắn là mức HIGH. Nối chung với VCC (5V) của board là an toàn nhất.
+2. **Dây header/dupont KHÔNG đáng tin cho đường 12V/PWM công suất** — gặp liên tiếp 2 lần tiếp xúc lỏng (đường 12V B+/B- sụt từ 11V xuống <1V; đường RPWM/PA6 tiếp xúc chập chờn khiến đo ra "có áp rồi tụt về 0"). Nên hàn trực tiếp hoặc dùng terminal vít cho đường công suất, header rời chỉ nên dùng cho tín hiệu logic dòng thấp.
+3. **⭐ Watchdog `$VEL` 300ms (đã có từ trước) làm sai lệch MỌI script test "giữ lệnh"**: nếu script chỉ gửi `$VEL` một lần rồi chờ đo/quan sát nhiều giây, motor chỉ chạy thật 300ms đầu rồi tự dừng do watchdog — toàn bộ phép đo sau đó (multimeter, LED, encoder) đều rơi vào giai đoạn đã dừng, dễ kết luận nhầm "phần cứng hỏng". **Bắt buộc gửi lại `$VEL` liên tục (chu kỳ <300ms, ví dụ mỗi 100ms) trong suốt thời gian test/đo.**
+4. **Encoder VCC nên dùng 3.3V (không phải 5V)** dù JGB37-520 chấp nhận 3.3-5V — vì tín hiệu ra A/B sẽ dao động theo đúng mức VCC cấp, cấp 5V có thể vượt ngưỡng chịu đựng của 1 số chân STM32F4 không 5V-tolerant. Đây là lựa chọn chủ động, không phải thiếu sót.
+5. **2 motor lắp đối xứng trên khung xe → cùng 1 lệnh tốc độ sẽ làm 2 trục quay ngược chiều nhau** (encoder trái dương, phải âm cùng lúc) — không phải lỗi, cần đảo dấu 1 bên trong `DRV_Motor_SetSpeed()` (đã làm cho bánh phải: `set_channel_speed((int8_t)(-right), ...)`) để cả 2 bánh cùng đẩy xe đi thẳng.
+6. **Cách kiểm tra encoder còn sống độc lập với motor/driver**: cấp đúng VCC/GND, dùng tay xoay trục, đo điện áp DC tại chân A/B — phải thấy nhảy giữa 0V và VCC. Cách kiểm tra motor còn sống độc lập với driver: tháo dây động lực, chạm thẳng vào pin AA/9V (không cần điện trở, không nối qua STM32/BTS7960) trong 1-2s.
+7. Board Hiwonder cũ dùng chung 1 board cho 2 motor (cross-talk nhiệt góp phần gây cháy); BTS7960 x2 (1 board/motor) giảm rủi ro này, nhưng margin dòng (dòng chịu tải >> dòng stall thực tế) mới là yếu tố quyết định, không phải việc tách board.
+
+**🔴 2 board STM32F446RE Nucleo-64 liên tiếp hỏng (2026-07-07) → chuyển hẳn sang F411CEU6 "Black Pill":**
+
+Trong lúc test BTS7960 mới lắp, board Nucleo đầu tiên **nóng bất thường** dù chỉ cấp USB (không nối motor/12V) — dấu hiệu dòng bất thường chạy qua chip, không phải nhiệt CPU bình thường. Board thứ 2 (sau khi mượn/tháo phần ST-Link từ board 1) cũng lặp lại đúng hiện tượng. Không có dấu hiệu cháy/khét nhìn thấy được — hỏng kiểu suy yếu bán dẫn nội bộ, không phải đoản mạch lộ liễu.
+
+**Nghi ngờ nguyên nhân gốc (không khẳng định tuyệt đối, nhiều yếu tố cộng dồn qua nhiều giờ test)**:
+- **Dòng rò AC từ sạc laptop 2 chân (không tiếp đất)** — xác nhận thực nghiệm bằng cách chạm tay vào board thấy "tê tê", rút sạc chạy pin thì hết tê. Suốt buổi test, tay người dùng chạm nhiều điểm mass khác nhau (que đo, dây pin 12V, dây STM32) cùng lúc — nếu các mass đó không thông nhau hoàn toàn (đã xảy ra nhiều lần do dây lỏng), dòng rò AC có đường chạy qua GPIO/GND của STM32 liên tục nhiều giờ.
+- GND của STM32 từng đấu **xuyên qua chân GND của board BTS7960** (nơi dòng motor lớn chạy qua) thay vì có nhánh riêng — đúng kiểu "ground bounce" kinh điển, dòng lớn tạo sụt áp trên đường GND chung khiến STM32 "nhìn nhầm" mức 0V.
+
+**Bài học phòng ngừa cho lần sau (đã áp dụng ngay khi lắp F411, xem `docs/wiring-f411.html`)**:
+- **Rút sạc laptop, chạy pin** khi thao tác/đo đạc board hở mạch trong thời gian dài
+- **Nối GND kiểu star qua 1 thanh terminal block riêng** — mỗi thiết bị (STM32, servo, 2× BTS7960, 2× encoder) có dây GND riêng về thanh terminal, rồi CHỈ 1 dây từ thanh đó ra cực (–) pin. GND của STM32 KHÔNG BAO GIỜ đi xuyên qua chân GND của board công suất nào khác.
+- Test/nạp/reset theo từng bước nhỏ, không ráp hết hệ thống rồi cấp điện 1 lần
+
+**Bài học quan trọng khi debug — đừng vội kết luận "chip hỏng"**: trong lúc debug lỗi USART2 RX không nhận được `$VEL` (xem bên dưới), từng nghi oan chip F411 mới cũng hỏng (dựa vào `RCC AHB1ENR`/`USART2 CR1` đọc ra 0x00000000 qua SWD, không chạy qua nổi `SystemClock_Config()`). Hóa ra đó là do **soft reset qua ST-Link không đủ để gỡ trạng thái kẹt** — chỉ power-cycle thật sự (rút/cắm lại ST-Link) mới khôi phục được. Kết luận "hỏng" chỉ nên đưa ra sau khi đã thử power-cycle hoàn toàn, không chỉ soft reset.
+
+**🔧 Migration firmware F446 → F411 (2026-07-07):**
+
+Tạo project CubeMX **hoàn toàn mới** (`amr_stm32f411/`, không generate lại từ F446) vì khác họ chip con nhưng cùng dòng F4/HAL — copy nguyên `ackermann.c/h`, `jetson_comm.c/h`, `servo_buslinker.c/h` (không đổi gì), chỉ sửa `motor_driver.c/h` (TIM8→TIM4) và merge logic ứng dụng vào `main.c` mới generate.
+
+**Khác biệt so với F446 cần lưu ý:**
+1. **F411 không có TIM8** — encoder phải chuyển từ TIM8(PC6/PC7) sang **TIM4(PB6/PB7)**, vẫn 16-bit nên logic cộng dồn tràn số trong `motor_driver.c` giữ nguyên
+2. **PWM ARR đổi từ 4499 → 4999** vì F411 chạy 100MHz (F446 chạy 90MHz cho APB1 timer) — cùng cho ra 20kHz nhưng số ARR khác, phải tính lại theo clock thực tế của chip mới, không copy nguyên số cũ
+3. **Không cần đảo dấu bánh phải nữa** — F446 cũ cần `set_channel_speed((int8_t)(-right), ...)` vì quy ước dây M+/M-/encoder A-B lúc đó; F411 đấu lại dây từ đầu nên quy ước khác, đo thực nghiệm cho thấy **không đảo dấu mới đúng** (`enc_l`/`enc_r` cùng dấu khi tiến). Luôn đo lại thực nghiệm sau khi đấu dây lại từ đầu, không giả định giữ nguyên logic đảo dấu cũ.
+4. **Project CubeMX mới không tự sinh `tim.c`/`usart.c` riêng** như F446 (tùy theo tùy chọn "Generate peripheral initialization as pair of .c/.h" trong Project Manager) — handle `htim2/htim3/htim4/huart1/huart2` khai báo trực tiếp trong `main.c`, phải tự thêm `extern` cho các handle này vào `main.h` (mục "USER CODE BEGIN ET") để `motor_driver.c`, `jetson_comm.c`, `servo_buslinker.c` include `"main.h"` dùng được (thay vì `"tim.h"`/`"usart.h"` như F446).
+
+**⭐ Bug nghiêm trọng nhất — thiếu cấu hình NVIC cho USART2 (nguyên nhân thật của nghi ngờ "chip hỏng"):**
+
+Sau khi port xong, `$ODO` gửi từ STM32 lên máy tính hoạt động hoàn hảo, nhưng `$VEL` gửi xuống **không bao giờ được xử lý** (`steer`/encoder không đổi dù gửi lệnh liên tục hàng trăm lần) — triệu chứng giống hệt lỗi dây/nguồn nên đã đi vòng qua rất nhiều bước debug sai hướng (nghi dây CH340 lỏng, nghi nguồn nhiễu, nghi chip hỏng) trước khi tìm ra gốc rễ thật.
+
+- **Nguyên nhân**: project CubeMX mới cho F411 **không tự động bật ngắt (NVIC) cho USART2** — khác F446 cũ (project đó có sẵn `NVIC.USART2_IRQn=true...` trong `.ioc` từ trước). Thiếu 2 việc: (1) `HAL_NVIC_EnableIRQ(USART2_IRQn)` trong `HAL_UART_MspInit`, (2) hàm `USART2_IRQHandler()` gọi `HAL_UART_IRQHandler(&huart2)` trong `stm32f4xx_it.c`.
+- Vì thiếu ngắt, `HAL_UART_Receive_IT()` gọi trong `APP_Comm_Init()` không bao giờ trigger `HAL_UART_RxCpltCallback` — byte nhận được nằm im trong thanh ghi phần cứng, CPU không bao giờ đọc ra. TX vẫn hoạt động bình thường vì code gửi (`uart2_tx_raw`) dùng polling thanh ghi trực tiếp, không phụ thuộc ngắt.
+- **Cách phát hiện**: đọc trực tiếp thanh ghi `USART2->CR1` (địa chỉ `0x4000440C`) qua SWD (`STM32_Programmer_CLI.exe -c port=SWD -r32 0x4000440C 1`) — nếu ra `0x00000000` thì USART2 chưa hề được cấu hình/chạy qua, đây là cách chẩn đoán khách quan không cần đoán mò dây/nguồn.
+- **Fix**: thêm 2 dòng NVIC vào `HAL_UART_MspInit` (USER CODE section của `stm32f4xx_hal_msp.c`) + thêm `USART2_IRQHandler` vào `stm32f4xx_it.c`. Build/nạp lại → `$VEL` xử lý ngay lập tức.
+- **Bài học khi tạo project CubeMX mới từ đầu (không phải generate lại/copy)**: luôn kiểm tra tab **NVIC Settings** của từng peripheral dùng ngắt (đặc biệt USART/UART dùng `HAL_xxx_Receive_IT`) — CubeMX **không tự động bật** ngắt chỉ vì đã cấu hình chân/mode, đây là bước riêng dễ bỏ sót khi không dùng lại project cũ.
+
+Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng phần cứng, luôn kiểm tra thanh ghi NVIC/peripheral qua SWD **trước khi** kết luận hỏng chip — rẻ và nhanh hơn nhiều so với nghi oan và mua board mới.
+
+**Calibration servo mới (2026-07-07)**: servo cũ (ID=1) nghi hỏng trong lúc test (đo VIN chỉ ra 2V dù đã cấp đúng 12V) → đổi sang servo khác đã có sẵn, **ID=9** — cập nhật `SERVO_ID` trong `servo_buslinker.h`. Thêm hằng số `ACK_STEER_TRIM_DEG=1.5f` trong `ackermann.h`/`.c` (cộng vào `steer_deg` trước khi clamp) để bù lệch cơ khí lúc lắp servo mới — xác định bằng cách quan sát trực tiếp bánh lái, không phải tính toán lý thuyết.
+
+**Đã verify đầy đủ trên F411 (2026-07-07)**: giao tiếp `$VEL`/`$ODO` qua CH340↔USART2, 2 motor chạy đồng bộ đúng chiều (không cần đảo dấu), servo ID=9 phản hồi đúng góc kèm trim, test tổ hợp tiến/lùi/lái đồng thời — encoder trái/phải khớp nhau ở cả 2 chiều.
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
@@ -408,13 +497,17 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 - [ ] Điều hướng tự động A → B
 
 ### Quyết định kỹ thuật đã chốt
-- Motor driver: Hiwonder 4-Ch Encoder Motor Driver, giao tiếp I2C1 (PB8/PB9), GPIO_PULLUP
-- Servo lái: HTS-20H, USART1 PA9(TX)/PA10(RX), 115200 baud — nối **trực tiếp** qua điện trở nối tiếp ~1kΩ (không qua debug board, đã hỏng)
+- **STM32 slave: F411CEU6 "Black Pill" rời + ST-Link ngoài** (không phải Nucleo tích hợp) — thay F446RE sau khi 2 board liên tiếp hỏng 2026-07-07. Firmware tại `amr_stm32f411/`.
+- Motor driver: **BTS7960 x2 (1 board/motor)**, điều khiển PWM (RPWM/LPWM qua TIM3, 20kHz, ARR=4999 ở 100MHz) + DIR (R_EN/L_EN nối cứng 5V) — thay Hiwonder I2C đã cháy 2026-07-05
+- Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái/32-bit, **TIM4 phải/16-bit** — đổi từ TIM8 vì F411 không có), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32), không còn qua I2C
+- Servo lái: HTS-20H (**ID=9**), USART1 PA9(TX)/PA10(RX), 115200 baud — nối **trực tiếp** qua điện trở nối tiếp ~1kΩ (không qua debug board, đã hỏng), trim `+1.5°` bù lệch cơ khí
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
-- Motor type register `0x14 = 3` (JGB37-520R90), gear ratio 90:1
-- Motor channel: CH1=trái, CH2=phải (xác nhận bằng thực nghiệm)
-- BusLinker protocol LEN=7: LEN tính từ chính nó đến CHECKSUM (LEN+CMD+DATA+CHK)
+- GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
+- Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
+- Chiều motor: **KHÔNG đảo dấu** trong `DRV_Motor_SetSpeed()` trên F411 (khác F446 — quy ước dây khác do đấu lại từ đầu)
 - Kích thước xe: L=304mm, W=268mm, H=84mm, wheelbase=210mm, track=217mm, r_wheel=100mm
+
+> BusLinker protocol LEN=7, MOTOR_TYPE register `0x14=3`, motor channel CH1/CH2 — các mục này thuộc kiến trúc I2C/Hiwonder cũ, không còn áp dụng nhưng giữ lại trong lịch sử "I2C Bit-bang" (Giai đoạn 2) để tham khảo nếu quay lại driver kiểu register-based sau này.
 
 ### Lỗi đã gặp và fix (tránh lặp lại)
 1. **CubeMX Clock**: Nucleo-F446RE dùng HSI (không có HSE crystal) → ấn OK khi Clock Wizard hỏi về HSE
@@ -424,24 +517,28 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 5. **BusLinker LEN=7**: LEN tính cả chính nó — dùng LEN=6 servo im lặng hoàn toàn, không có NAK
 6. **Debug/ folder**: phải có trong `.gitignore` (STM32CubeIDE build artifacts)
 7. **TTL Bus Servo Debugging Board hỏng**: thay bằng đấu trực tiếp STM32↔servo qua điện trở nối tiếp (xem Giai đoạn 2) — không cần sửa firmware, chỉ đổi dây
+8. **Tạo project CubeMX mới từ đầu KHÔNG tự bật NVIC cho ngắt UART** (khác project generate lại/copy) — phải tự thêm `HAL_NVIC_EnableIRQ()` + `USART2_IRQHandler()`, nếu không `HAL_UART_Receive_IT()` không bao giờ trigger callback dù dây/nguồn đều đúng (xem "Migration firmware F446 → F411")
+9. **Đọc thanh ghi qua SWD (`STM32_Programmer_CLI -r32`) để chẩn đoán "không phản hồi"** trước khi kết luận hỏng chip — `RCC->AHB1ENR`/`USARTx->CR1` = 0 nghĩa là code chưa chạy qua init đó, thường là bug cấu hình chứ không phải phần cứng chết
 
 ### Vấn đề đang gặp
 
-**🔴 NGHIÊM TRỌNG — Mạch Motor Driver Hiwonder ĐÃ CHÁY (2026-07-05):**
+Không có vấn đề nghiêm trọng nào đang mở — xem "✅ Đã giải quyết gần đây" bên dưới cho lịch sử.
 
-Sau nhiều lần motor không phản hồi qua ROS (servo vẫn OK, chỉ motor im lặng — xem lịch sử debug bên dưới), user phát hiện chip trên mạch Motor Driver bị nóng, tháo tản nhiệt ra thì **chip cháy ngay lập tức**. Đây là hỏng phần cứng vĩnh viễn, KHÔNG phải lỗi phần mềm/node kẹt như nghi ngờ trước đó.
+**Việc tiếp theo**: sang Jetson tiếp tục test end-to-end (`serial_driver_node` ↔ firmware F411 mới qua USART2 PA2/PA3 thật, không phải CH340 test bàn). Sau đó hạ bánh xuống đất, test di chuyển thẳng ngắn + servo lái thực tế, rồi mới tiếp tục test `lane_follow_node` thật (đứng xa/lệch sang bên khi test, không đứng sát ống kính camera — bài học cũ vẫn còn giá trị). Cân nhắc verify lại calibration `ticks_per_rev`/`steering_trim_angular_z` phía Jetson vì đã đổi cả STM32 lẫn servo — số cũ (đo trên F446 + servo ID=1) chưa chắc còn đúng.
 
-**Lịch sử debug dẫn tới phát hiện này** (để tránh hiểu nhầm lại là lỗi phần mềm):
-- 2026-07-04: motor không phản hồi khi test `lane_follow_node` lần đầu → nghi driver hỏng do quá nhiệt (đèn báo tắt) → rút nguồn để nguội → sau đó test lại thấy chạy được qua serial thô + restart `serial_driver_node` sạch → tưởng đã khỏi (chỉ là node ROS bị kẹt state, không phải hỏng thật)
-- 2026-07-05: build+nạp firmware watchdog xong, verify OK (dừng trong 85ms). Nhưng khi test lại `lane_follow_node` thật, motor lại không phản hồi (servo vẫn OK) — lần này restart `serial_driver_node` sạch KHÔNG khắc phục được (khác hẳn mẫu hình hôm trước) → đúng lúc này phát hiện chip cháy khi tháo tản nhiệt.
+### ✅ Đã giải quyết gần đây
 
-**Kết luận**: mạch Motor Driver Hiwonder cần **thay mới** — không sửa được bằng phần mềm. Việc quá nhiệt lặp lại nhiều lần (dù có tản nhiệt) gợi ý có thể motor bị quá tải liên tục (kẹt cơ khí, tải nặng hơn thiết kế, hoặc driver đã suy yếu từ lần quá nhiệt đầu 2026-07-04) — cân nhắc kiểm tra kỹ tải cơ khí trước khi lắp driver mới.
+**2 board STM32F446RE Nucleo hỏng liên tiếp (2026-07-07) → chuyển sang F411CEU6 "Black Pill", verify OK cùng ngày:**
 
-**✅ Đã hoàn thành trước khi phát hiện hỏng (vẫn còn giá trị, không cần làm lại khi có driver mới):**
-- Firmware watchdog `$VEL` timeout: build/nạp + verify xong (dừng trong 85ms khi mất kết nối)
-- Lane detection: sửa `roi_top_ratio` (0.35) + `canny_low/high` (20/60) khớp vị trí camera + ánh sáng hiện tại, `/lane_center_error` ổn định 26.8Hz — xem Giai đoạn 6
+Board nóng bất thường dù chỉ cấp USB (không nối motor/12V) — nghi do dòng rò AC từ sạc laptop 2 chân + GND từng đấu xuyên qua chân board BTS7960 (ground bounce), tích lũy qua nhiều giờ test. Đã chuyển hẳn sang F411 + ST-Link rời, áp dụng GND kiểu star qua thanh terminal riêng. Trong lúc port firmware, phát hiện + sửa bug **thiếu cấu hình NVIC cho USART2** (nguyên nhân thật khiến `$VEL` không xử lý được, từng nghi oan là chip hỏng lần 3) — chi tiết đầy đủ xem "Migration firmware F446 → F411" trong Giai đoạn 2 ở trên.
 
-**Việc tiếp theo**: build/nạp firmware, verify watchdog hoạt động đúng, rồi mới tiếp tục test `lane_follow_node` thật. Khi test lại, đứng xa/lệch sang bên thay vì đứng sát ống kính camera (đã phát hiện: đứng sát che khung hình gây nhận diện làn chập chờn).
+**Đã verify đầy đủ trên F411 (2026-07-07)**: giao tiếp `$VEL`/`$ODO`, 2 motor đồng bộ đúng chiều (không cần đảo dấu, khác F446), servo mới (ID=9, trim +1.5°) phản hồi đúng góc, test tổ hợp tiến/lùi/lái cùng lúc — encoder trái/phải khớp nhau.
+
+**Mạch Motor Driver Hiwonder đã cháy (2026-07-05) → thay bằng BTS7960 x2, verify OK (2026-07-06):**
+
+Sau nhiều lần motor không phản hồi qua ROS (servo vẫn OK, chỉ motor im lặng), phát hiện chip trên mạch Hiwonder bị nóng, tháo tản nhiệt ra thì cháy ngay lập tức — hỏng phần cứng vĩnh viễn (dòng liên tục driver chỉ 2A/2.5A peak trong khi motor stall ~2.3A, gần như không có margin, lại không có bảo vệ nhiệt/quá dòng).
+
+**Đã thay bằng BTS7960 x2 (1 board/motor)** — margin dòng rộng hơn nhiều (~10A liên tục an toàn), có bảo vệ quá dòng/quá nhiệt ở cấp chip. Đồng thời viết lại kiến trúc encoder: đấu thẳng vào STM32 qua TIM hardware Encoder Mode, loại bỏ hoàn toàn I2C bit-bang từng phải vật lộn nhiều với Hiwonder.
 
 ---
 
