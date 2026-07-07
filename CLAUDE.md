@@ -522,9 +522,27 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 
 ### Vấn đề đang gặp
 
-Không có vấn đề nghiêm trọng nào đang mở — xem "✅ Đã giải quyết gần đây" bên dưới cho lịch sử.
+**🔴 Board STM32 THỨ 3 đã hỏng (2026-07-07, cuối phiên) — F411 chết khi nối sang Jetson, nguyên nhân chưa chắc chắn 100%:**
 
-**Việc tiếp theo**: sang Jetson tiếp tục test end-to-end (`serial_driver_node` ↔ firmware F411 mới qua USART2 PA2/PA3 thật, không phải CH340 test bàn). Sau đó hạ bánh xuống đất, test di chuyển thẳng ngắn + servo lái thực tế, rồi mới tiếp tục test `lane_follow_node` thật (đứng xa/lệch sang bên khi test, không đứng sát ống kính camera — bài học cũ vẫn còn giá trị). Cân nhắc verify lại calibration `ticks_per_rev`/`steering_trim_angular_z` phía Jetson vì đã đổi cả STM32 lẫn servo — số cũ (đo trên F446 + servo ID=1) chưa chắc còn đúng.
+F411 đã verify hoàn toàn OK trên Windows (xem "Đã giải quyết gần đây" bên dưới), nhưng khi mang sang cắm với Jetson thì hỏng — không nhận diện được gì qua SWD nữa (khác lần trước, lần đó chỉ là kẹt trạng thái gỡ được bằng power-cycle; lần này thử power-cycle không cứu được).
+
+**Setup lúc hỏng**: Type-C (cắm vào cổng USB Jetson để cấp nguồn cho Black Pill) + CH340 (cắm cổng USB Jetson khác, nối TX/RX/GND sang PA2/PA3/GND của STM32) — tức là **STM32 nối tới Jetson qua 2 đường USB riêng biệt cùng lúc** (1 đường nguồn, 1 đường data).
+
+**Giả thuyết nghi ngờ nhất (chưa kiểm chứng được, chỉ là suy luận)**: **ground loop** — 2 đường mass riêng biệt (qua dây Type-C và qua dây GND của CH340) cùng nối STM32 với Jetson, nếu mass giữa 2 cổng USB trên Jetson không hoàn toàn đồng nhất (rất thường gặp khi có dòng thật chạy qua 1 đường), chênh lệch tạo dòng chạy vòng qua đúng dây GND mảnh của CH340. Đã loại trừ được rò AC từ nguồn UPS Jetson (test "chạm tay" không thấy tê).
+
+**⚠️ CHƯA XÁC NHẬN được đây là nguyên nhân thật** — chỉ là giả thuyết hợp lý nhất dựa trên suy luận, KHÔNG được kiểm chứng bằng thực nghiệm lặp lại (không có board thứ 4 để thử lại có kiểm soát). Cẩn thận khi áp dụng bài học này — nếu lặp lại sự cố dù đã tránh ground loop, cần nghĩ lại từ đầu.
+
+**Quyết định**: chuyển sang **STM32F103C8T6 "Blue Pill"** (đã có sẵn, không tốn thêm tiền) thay vì mua thêm F411. Pin mapping gần như y hệt F411 (PA6/PA7/PB0/PB1 PWM, PA0/PA1 encoder trái, PB6/PB7 encoder phải, PA9/PA10 servo, PA2/PA3 Jetson) — khác biệt: **F103 không có timer 32-bit nào**, cả 2 encoder đều cần code cộng dồn tràn số (không chỉ riêng bên phải như F411).
+
+**Việc tiếp theo (bắt buộc làm đúng ngay từ đầu, đã mất 3 board):**
+1. Tạo project CubeMX mới cho F103C8T6 (tương tự quy trình F411) — **nhớ bật NVIC cho USART2** ngay từ đầu (bài học đắt giá từ F411)
+2. Port `motor_driver.c/h` (cộng dồn tràn số cho CẢ 2 encoder), copy nguyên `ackermann.c/h`, `jetson_comm.c/h`, `servo_buslinker.c/h`
+3. **STM32 lấy nguồn từ module hạ áp 12V→5V riêng của robot (KHÔNG lấy từ Jetson/USB)** — chỉ 1 đường kết nối duy nhất tới Jetson qua CH340 (TX/RX/GND), không có đường nguồn song song nào khác
+4. GND kiểu star qua thanh terminal (xem `docs/wiring-f411.html`, áp dụng nguyên cho F103)
+5. Test từng bước nhỏ: nạp code cơ bản trước (không nối gì khác), xác nhận không nóng, rồi mới nối dần từng thiết bị
+6. Sau khi F103 chạy ổn trên bàn, khi nối sang Jetson: **tuyệt đối không cấp nguồn STM32 qua bất kỳ cổng USB nào của Jetson** — chỉ CH340 (data-only, GND chung) là điểm kết nối duy nhất
+
+Sau khi F103 hoạt động ổn định: hạ bánh xuống đất, test di chuyển thẳng ngắn + servo lái thực tế, verify lại calibration `ticks_per_rev`/`steering_trim_angular_z` phía Jetson (số cũ đo trên F446 + servo ID=1 chưa chắc còn đúng).
 
 ### ✅ Đã giải quyết gần đây
 
