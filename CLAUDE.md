@@ -12,7 +12,7 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 **Kiến trúc hệ thống:**
 
 ```
-[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F411CEU6 "Black Pill"]
+[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F103C8T6 "Blue Pill"]
         (ROS2 Master)                              (Low-level Slave)
         ↑            ↑                              ↑                    ↑
   IMX-219 Camera  RPLidar A1M8        [BTS7960 x2 (1 board/motor)]   USART1 (single-wire)
@@ -22,7 +22,8 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 ```
 > Servo lái nối **thẳng** vào STM32 (không qua TTL Bus Servo Debugging Board — board này đã hỏng, xem mục 8).
 > Motor driver **Hiwonder 4-Ch (I2C) đã cháy 2026-07-05, thay bằng BTS7960 x2 (PWM+DIR)** — encoder đấu thẳng vào STM32 qua TIM hardware Encoder Mode, không còn I2C/bit-bang. Xem mục 8.
-> **STM32 slave đã đổi từ F446RE Nucleo-64 sang F411CEU6 "Black Pill" (2026-07-07)** — 2 board F446RE liên tiếp hỏng (nghi do stress điện áp/rò AC tích lũy qua nhiều giờ test), chuyển hẳn sang F411 rời + ST-Link ngoài. Firmware nằm ở `amr_stm32f411/` (project `firmware/` cũ giữ lại làm tham khảo lịch sử/board F446, không còn build/nạp). Xem mục 8 "Migration F446 → F411".
+> **STM32 slave đã đổi từ F446RE Nucleo-64 → F411CEU6 "Black Pill" → STM32F103C8T6 "Blue Pill" (2026-07-21)** — 2 board F446RE rồi 1 board F411 liên tiếp hỏng (F411 chết khi nối Jetson, nghi ground loop qua 2 đường USB), chuyển sang F103 rời + ST-Link ngoài, **đã verify đầy đủ hoạt động ổn định** (comm/servo/watchdog/motor+encoder). Firmware nằm ở `amr_stm32f103/` (`amr_stm32f411/`/`firmware/` cũ giữ lại tham khảo lịch sử, không còn build/nạp). Xem mục 8.
+> **🔧 Đang đặt mua board Hiwonder "MiniROS Controller" (STM32F407, driver SA8870 tích hợp) để thay thế hoàn toàn STM32 rời hiện tại — ETA ~2026-08-04.** Quyết định giữ kiến trúc firmware tự viết (bare-metal, protocol ASCII `$VEL`/`$ODO`), KHÔNG chuyển sang full stack FreeRTOS của Hiwonder. Xem mục 8 "MiniROS Controller — kế hoạch thay thế".
 
 ---
 
@@ -35,24 +36,24 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 - Giao tiếp với slave: UART hoặc USB-Serial
 - Thư viện NVIDIA có thể dùng: Isaac ROS, DeepStream, TensorRT (nếu phần cứng đủ điều kiện)
 
-### Slave: STM32F411CEU6 "Black Pill" (rời, không phải Nucleo)
-- Firmware: STM32CubeIDE, project tại `amr_stm32f411/` — **project mới tạo từ đầu** (không phải generate lại từ F446), xem bài học NVIC ở mục 8
-- Nạp/debug: **ST-Link V2 rời** (không tích hợp trên board như Nucleo) — cắm SWCLK/SWDIO/GND + nguồn (3.3V từ ST-Link hoặc 5V ngoài) vào header SWD của Black Pill
-- **Không có cổng UART ảo tích hợp** (khác Nucleo) — khi cần test `$VEL`/`$ODO` qua máy tính (thay vì Jetson), phải dùng thêm **module USB-to-TTL CH340 rời** nối PA2/PA3
+### Slave: STM32F103C8T6 "Blue Pill" (rời, không phải Nucleo)
+- Firmware: STM32CubeIDE, project tại `amr_stm32f103/` — **project mới tạo từ đầu** (không phải generate lại từ F411), xem mục 8
+- Nạp/debug: **ST-Link V2 rời** — cắm SWCLK/SWDIO/GND + nguồn vào header SWD của Blue Pill
+- **Không có cổng UART ảo tích hợp** — khi cần test `$VEL`/`$ODO` qua máy tính (thay vì Jetson), dùng thêm **module USB-to-TTL CH340 rời** nối PA2/PA3
 - Nhiệm vụ: nhận cmd_vel → điều khiển motor (PWM+DIR qua BTS7960), đọc encoder (TIM hardware Encoder Mode), điều khiển servo qua single-wire trực tiếp
 - Giao thức với master: custom UART protocol qua USART2
-- Clock: **HSI nội bộ** (không cần thạch anh ngoài), PLL lên **100MHz** (PLLM=8, PLLN=100, PLLP=DIV2, PLLQ=4)
+- Clock: **HSE 8MHz ngoài** (thạch anh trên board), PLL ×9 → **72MHz** (PREDIV_DIV1 — không chia đôi, khác giả định 16MHz ban đầu lúc gen CubeMX, đã sửa)
 
 **Pin assignments đã xác nhận:**
 | Peripheral | Pins | Kết nối |
 |---|---|---|
-| TIM3 CH1-CH4 | PA6, PA7, PB0, PB1 | PWM: RPWM/LPWM trái (PA6/PA7), RPWM/LPWM phải (PB0/PB1) → BTS7960 x2, 20kHz (ARR=4999 ở 100MHz timer clock — **khác 4499 của F446**, tính lại theo clock mới) |
-| TIM2 (Encoder Mode TI12) | PA0, PA1 | Encoder trái (A/B), 32-bit counter — đấu thẳng vào STM32, không qua BTS7960 |
-| TIM4 (Encoder Mode TI12) | PB6, PB7 | Encoder phải (A/B), 16-bit counter (cộng dồn tràn số trong `motor_driver.c`) — **đổi từ TIM8/PC6-PC7 của F446** vì F411 không có TIM8 |
+| TIM3 CH1-CH4 | PA6, PA7, PB0, PB1 | PWM: RPWM/LPWM trái (PA6/PA7), RPWM/LPWM phải (PB0/PB1) → BTS7960 x2, 20kHz (ARR=3599 ở 72MHz timer clock — **khác 4999 của F411**, tính lại theo clock mới) |
+| TIM2 (Encoder Mode TI12) | PA0, PA1 | Encoder trái (A/B), 16-bit counter (cộng dồn tràn số trong `motor_driver.c`) — **F103 không có timer 32-bit nào**, khác F411 (TIM2 32-bit) |
+| TIM4 (Encoder Mode TI12) | PB6, PB7 | Encoder phải (A/B), 16-bit counter (cộng dồn tràn số) |
 | USART2 | PA2 (TX), PA3 (RX) | Jetson Orin Nano, 115200 baud — lúc test bàn dùng CH340 rời (TX↔PA3, RX↔PA2, GND chung) |
 | USART1 | PA9 (TX), PA10 (RX) | PA9 qua điện trở ~1kΩ + PA10 nối thẳng → dây SIG của HTS-20H (single-wire half-duplex, không qua debug board) |
 
-> I2C1 **không dùng tới** trên project F411 (project mới tạo từ đầu, không bật I2C ngay từ lúc cấu hình CubeMX, khác F446 phải tắt thủ công).
+> SYS Debug = **Serial Wire** (không phải "No Debug") — bắt buộc, nếu để "No Debug" CubeMX sinh `__HAL_AFIO_REMAP_SWJ_DISABLE()` sẽ khóa SWD vĩnh viễn sau lần nạp đầu. Linker cần thêm cờ `-u _printf_float -u _scanf_float` ("Use float with printf/scanf" trong project settings) vì `jetson_comm.c` dùng `%.1f`/`strtof`. Xem mục 8.
 
 ### Cơ cấu chấp hành
 | Thiết bị | Model | Giao tiếp | Ghi chú |
@@ -95,13 +96,19 @@ amr_ws/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32.ioc
-├── amr_stm32f411/          ← STM32 firmware HIỆN TẠI (F411 Black Pill, build trên Windows)
-│   ├── Core/Src/           ← Application code
+├── amr_stm32f411/          ← STM32 firmware CŨ (F411 Black Pill, đã hỏng lần 3 — giữ tham khảo, KHÔNG build/nạp nữa)
+│   ├── Core/Src/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32f411.ioc
+├── amr_stm32f103/          ← STM32 firmware HIỆN TẠI (F103 Blue Pill, build trên Windows, đã verify)
+│   ├── Core/Src/           ← Application code
+│   ├── Core/Inc/
+│   ├── Drivers/
+│   └── amr_stm32f103.ioc
+├── reference/              ← Tài liệu Hiwonder MiniROS/JetAcker (đã .gitignore, KHÔNG push git — license personal use only)
 ├── docs/
-│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 (pin table, star ground, phân phối nguồn)
+│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 (pin table, star ground, phân phối nguồn — vẫn áp dụng nguyên tắc cho F103)
 ├── CLAUDE.md
 └── README.md
 ```
@@ -264,25 +271,26 @@ screen /dev/ttyUSB0 115200
 minicom -D /dev/ttyUSB0 -b 115200
 ```
 
-### STM32 build/flash (Windows, F411 hiện tại)
+### STM32 build/flash (Windows, F103 hiện tại)
 
 ```bash
-# Build headless (workspace đã import sẵn project amr_stm32f411)
+# Build headless (workspace đã import sẵn project amr_stm32f103)
 "C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/stm32cubeidec.exe" --launcher.suppressErrors -nosplash \
   -application org.eclipse.cdt.managedbuilder.core.headlessbuild \
   -data "c:/Users/admin/STM32CubeIDE/workspace_2.1.1" \
-  -cleanBuild amr_stm32f411
+  -cleanBuild amr_stm32f103
 
-# Nạp qua ST-Link rời (không phải ST-Link tích hợp Nucleo)
+# Nạp qua ST-Link rời
 "C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/tools/bin/STM32_Programmer_CLI.exe" \
-  -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f411/Debug/amr_stm32f411.elf" -v -rst
+  -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f103/Debug/amr_stm32f103.elf" -v -rst
 
 # Kiểm tra ST-Link + cổng UART (CH340) đang nhận diện
 STM32_Programmer_CLI.exe -l
 
-# Đọc thanh ghi qua SWD để chẩn đoán "không phản hồi" (xem mục 8, bug NVIC)
-STM32_Programmer_CLI.exe -c port=SWD -r32 0x4000440C 1   # USART2->CR1
-STM32_Programmer_CLI.exe -c port=SWD -r32 0x40023830 1   # RCC->AHB1ENR
+# Đọc thanh ghi qua SWD để chẩn đoán "không phản hồi" — LƯU Ý bắt buộc dùng mode=HOTPLUG
+# nếu board đang chạy thật (mode mặc định "Normal" tự halt core, đọc ra toàn 0 giả (false alarm))
+STM32_Programmer_CLI.exe -c port=SWD mode=HOTPLUG -r32 0x4000440C 1   # USART2->CR1
+STM32_Programmer_CLI.exe -c port=SWD mode=HOTPLUG -r32 0x4002101C 1  # RCC->APB1ENR (F1, khác địa chỉ AHB1ENR của F4)
 ```
 
 ---
@@ -497,14 +505,15 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 - [ ] Điều hướng tự động A → B
 
 ### Quyết định kỹ thuật đã chốt
-- **STM32 slave: F411CEU6 "Black Pill" rời + ST-Link ngoài** (không phải Nucleo tích hợp) — thay F446RE sau khi 2 board liên tiếp hỏng 2026-07-07. Firmware tại `amr_stm32f411/`.
-- Motor driver: **BTS7960 x2 (1 board/motor)**, điều khiển PWM (RPWM/LPWM qua TIM3, 20kHz, ARR=4999 ở 100MHz) + DIR (R_EN/L_EN nối cứng 5V) — thay Hiwonder I2C đã cháy 2026-07-05
-- Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái/32-bit, **TIM4 phải/16-bit** — đổi từ TIM8 vì F411 không có), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32), không còn qua I2C
+- **STM32 slave: F103C8T6 "Blue Pill" rời + ST-Link ngoài** — thay F411 sau khi hỏng lần 3 khi nối Jetson (2026-07-07, nghi ground loop). Firmware tại `amr_stm32f103/`, đã verify đầy đủ 2026-07-21 (xem "Đã giải quyết gần đây").
+- **🔧 Đang đặt mua Hiwonder "MiniROS Controller" (STM32F407 + driver SA8870 tích hợp) để thay thế hoàn toàn bộ STM32 rời** — ETA ~2026-08-04. Quyết định giữ kiến trúc firmware tự viết hiện tại (bare-metal, `$VEL`/`$ODO` ASCII), KHÔNG chuyển sang FreeRTOS full-stack của Hiwonder. Xem chi tiết ở "MiniROS Controller — kế hoạch thay thế" bên dưới.
+- Motor driver: **BTS7960 x2 (1 board/motor)**, điều khiển PWM (RPWM/LPWM qua TIM3, 20kHz, ARR=3599 ở 72MHz trên F103) + DIR (R_EN/L_EN nối cứng 5V, **PHẢI hàn cứng không qua dupont** — xem bài học "giật cục" trong "Đã giải quyết gần đây") — thay Hiwonder I2C đã cháy 2026-07-05. Sẽ được thay bằng driver SA8870 tích hợp sẵn trên board MiniROS khi hàng về.
+- Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái + TIM4 phải, **cả 2 đều 16-bit trên F103** — khác F411 có TIM2 32-bit), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32), không còn qua I2C
 - Servo lái: HTS-20H (**ID=9**), USART1 PA9(TX)/PA10(RX), 115200 baud — nối **trực tiếp** qua điện trở nối tiếp ~1kΩ (không qua debug board, đã hỏng), trim `+1.5°` bù lệch cơ khí
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
-- Chiều motor: **KHÔNG đảo dấu** trong `DRV_Motor_SetSpeed()` trên F411 (khác F446 — quy ước dây khác do đấu lại từ đầu)
+- Chiều motor: **CHƯA xác nhận thực nghiệm trên F103** (khác F411 không đảo dấu, F446 phải đảo — luôn đo lại `enc_l`/`enc_r` khi tiến thẳng sau mỗi lần đấu dây lại từ đầu)
 - Kích thước xe: L=304mm, W=268mm, H=84mm, wheelbase=210mm, track=217mm, r_wheel=100mm
 
 > BusLinker protocol LEN=7, MOTOR_TYPE register `0x14=3`, motor channel CH1/CH2 — các mục này thuộc kiến trúc I2C/Hiwonder cũ, không còn áp dụng nhưng giữ lại trong lịch sử "I2C Bit-bang" (Giai đoạn 2) để tham khảo nếu quay lại driver kiểu register-based sau này.
@@ -519,38 +528,56 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 7. **TTL Bus Servo Debugging Board hỏng**: thay bằng đấu trực tiếp STM32↔servo qua điện trở nối tiếp (xem Giai đoạn 2) — không cần sửa firmware, chỉ đổi dây
 8. **Tạo project CubeMX mới từ đầu KHÔNG tự bật NVIC cho ngắt UART** (khác project generate lại/copy) — phải tự thêm `HAL_NVIC_EnableIRQ()` + `USART2_IRQHandler()`, nếu không `HAL_UART_Receive_IT()` không bao giờ trigger callback dù dây/nguồn đều đúng (xem "Migration firmware F446 → F411")
 9. **Đọc thanh ghi qua SWD (`STM32_Programmer_CLI -r32`) để chẩn đoán "không phản hồi"** trước khi kết luận hỏng chip — `RCC->AHB1ENR`/`USARTx->CR1` = 0 nghĩa là code chưa chạy qua init đó, thường là bug cấu hình chứ không phải phần cứng chết
+10. **CubeMX SYS Debug để "No Debug" sẽ khóa SWD vĩnh viễn** sau lần nạp đầu (sinh `__HAL_AFIO_REMAP_SWJ_DISABLE()`) — luôn để **"Serial Wire"** khi tạo project mới
+11. **`STM32_Programmer_CLI -r32` mặc định connect mode "Normal" tự halt core khi attach** → đọc thanh ghi ra toàn 0 dù firmware đang chạy thật (giả "chip treo"). Phải thêm `mode=HOTPLUG` để đọc đúng giá trị real-time không làm gián đoạn core
+12. **R_EN/L_EN (hoặc bất kỳ chân enable nào qua opto-coupler) tiếp xúc lỏng có thể đo tay ra ĐỦ điện áp nhưng vẫn lỗi chức năng** — vôn kế gần như không rút dòng nên không phát hiện được sụt áp thật khi mạch cần dòng qua LED opto. Test bằng cách ấn/lay dây trong lúc mạch đang hoạt động thật, không chỉ đo tĩnh
 
-### Vấn đề đang gặp
+### 🔧 MiniROS Controller — kế hoạch thay thế (2026-07-21)
 
-**🔴 Board STM32 THỨ 3 đã hỏng (2026-07-07, cuối phiên) — F411 chết khi nối sang Jetson, nguyên nhân chưa chắc chắn 100%:**
+Đã đặt mua board Hiwonder **"MiniROS Controller"** (STM32F407VETx, không phải chỉ driver rời) — ETA ~14 ngày (~2026-08-04). Đọc kỹ schematic + protocol SDK + tài liệu kinematics thật trong `reference/` (xem chi tiết dưới) trước khi hàng về, để có kế hoạch rõ ràng ngay khi bắt tay vào.
 
-F411 đã verify hoàn toàn OK trên Windows (xem "Đã giải quyết gần đây" bên dưới), nhưng khi mang sang cắm với Jetson thì hỏng — không nhận diện được gì qua SWD nữa (khác lần trước, lần đó chỉ là kẹt trạng thái gỡ được bằng power-cycle; lần này thử power-cycle không cứu được).
+**Phần cứng board (xác nhận qua schematic `SCH_Ros Robot Controller Mini V2.0.pdf`):**
+- 4× driver IC **SA8870** tích hợp sẵn (H-bridge, có sense resistor 0.25R) — không cần BTS7960 rời, loại bỏ vấn đề R_EN/L_EN
+- **USB-C tích hợp chip CH9102F** (USB-to-serial) — không cần module CH340 rời
+- Bus servo qua USART6 + IC đệm **74HC125** (half-duplex thật qua TX_EN/RX_EN) — thay mẹo điện trở đang dùng cho HTS-20H
+- IMU **QMI8658** (6-trục) qua I2C2 — hiện robot chưa có IMU
+- 4× encoder hardware timer (TIM2/3/4/5), 4× PWM channel (TIM1/9/10/11)
 
-**Setup lúc hỏng**: Type-C (cắm vào cổng USB Jetson để cấp nguồn cho Black Pill) + CH340 (cắm cổng USB Jetson khác, nối TX/RX/GND sang PA2/PA3/GND của STM32) — tức là **STM32 nối tới Jetson qua 2 đường USB riêng biệt cùng lúc** (1 đường nguồn, 1 đường data).
+**Quyết định kiến trúc firmware (đã cân nhắc kỹ, chốt 2026-07-21):** giữ nguyên firmware bare-metal tự viết (copy gần nguyên `ackermann.c/h`, `jetson_comm.c/h`, `servo_buslinker.c/h`, chỉ viết lại `motor_driver.c` cho SA8870), **KHÔNG** chuyển sang full-stack FreeRTOS của Hiwonder (protocol binary `AA 55 FUNC LEN DATA CRC8`, motor PID closed-loop theo rps, Ackermann kinematics tính bên Jetson qua `ackermann.py`). Lý do: (1) source code JetAcker bản Ackermann thật bị khóa license, phải xin `support@hiwonder.com` kèm mã đơn hàng; (2) firmware generic MiniROS chỉ có differential/mecanum, không có Ackermann sẵn; (3) đổi FreeRTOS + protocol mới + PID tune cùng lúc = quá nhiều rủi ro cho deadline đồ án; (4) mất khả năng debug bằng mắt qua ASCII terminal.
 
-**Giả thuyết nghi ngờ nhất (chưa kiểm chứng được, chỉ là suy luận)**: **ground loop** — 2 đường mass riêng biệt (qua dây Type-C và qua dây GND của CH340) cùng nối STM32 với Jetson, nếu mass giữa 2 cổng USB trên Jetson không hoàn toàn đồng nhất (rất thường gặp khi có dòng thật chạy qua 1 đường), chênh lệch tạo dòng chạy vòng qua đúng dây GND mảnh của CH340. Đã loại trừ được rò AC từ nguồn UPS Jetson (test "chạm tay" không thấy tê).
+**⚠️ An toàn khi nối Jetson (rút kinh nghiệm từ vụ F411 hỏng lần 3)**: board có 1 cổng USB-C tích hợp vừa cấp nguồn vừa data. Quy tắc bắt buộc — **chỉ 1 đường nguồn tại 1 thời điểm**: hoặc (a) board tự cấp nguồn riêng + cáp USB-C cắt chân VBUS khi nối Jetson, hoặc (b) lấy nguồn thẳng từ USB-C Jetson và KHÔNG cắm thêm nguồn ngoài nào khác cùng lúc. Test độc lập trên bàn trước (ST-Link + nguồn riêng) trước khi thử nối Jetson, đúng quy trình đã áp dụng cho F103.
 
-**⚠️ CHƯA XÁC NHẬN được đây là nguyên nhân thật** — chỉ là giả thuyết hợp lý nhất dựa trên suy luận, KHÔNG được kiểm chứng bằng thực nghiệm lặp lại (không có board thứ 4 để thử lại có kiểm soát). Cẩn thận khi áp dụng bài học này — nếu lặp lại sự cố dù đã tránh ground loop, cần nghĩ lại từ đầu.
+**Việc tiếp theo khi hàng về:**
+1. Soi kỹ mạch "电源输入接口电路" (power input) trong schematic — xem có bảo vệ cách ly VBUS sẵn không
+2. Xác nhận mapping chân thật SA8870 IN1/IN2 ↔ TIM1/9/10/11 kênh nào cho từng motor (M1-M4 header)
+3. Đổi toolchain `.ioc` từ MDK-ARM sang STM32CubeIDE (project gốc Hiwonder set sẵn Keil), generate lại
+4. Port 3 file cũ + viết `motor_driver.c` mới cho SA8870, test tăng dần như đã làm với F103
 
-**Quyết định**: chuyển sang **STM32F103C8T6 "Blue Pill"** (đã có sẵn, không tốn thêm tiền) thay vì mua thêm F411. Pin mapping gần như y hệt F411 (PA6/PA7/PB0/PB1 PWM, PA0/PA1 encoder trái, PB6/PB7 encoder phải, PA9/PA10 servo, PA2/PA3 Jetson) — khác biệt: **F103 không có timer 32-bit nào**, cả 2 encoder đều cần code cộng dồn tràn số (không chỉ riêng bên phải như F411).
-
-**Việc tiếp theo (bắt buộc làm đúng ngay từ đầu, đã mất 3 board):**
-1. Tạo project CubeMX mới cho F103C8T6 (tương tự quy trình F411) — **nhớ bật NVIC cho USART2** ngay từ đầu (bài học đắt giá từ F411)
-2. Port `motor_driver.c/h` (cộng dồn tràn số cho CẢ 2 encoder), copy nguyên `ackermann.c/h`, `jetson_comm.c/h`, `servo_buslinker.c/h`
-3. **STM32 lấy nguồn từ module hạ áp 12V→5V riêng của robot (KHÔNG lấy từ Jetson/USB)** — chỉ 1 đường kết nối duy nhất tới Jetson qua CH340 (TX/RX/GND), không có đường nguồn song song nào khác
-4. GND kiểu star qua thanh terminal (xem `docs/wiring-f411.html`, áp dụng nguyên cho F103)
-5. Test từng bước nhỏ: nạp code cơ bản trước (không nối gì khác), xác nhận không nóng, rồi mới nối dần từng thiết bị
-6. Sau khi F103 chạy ổn trên bàn, khi nối sang Jetson: **tuyệt đối không cấp nguồn STM32 qua bất kỳ cổng USB nào của Jetson** — chỉ CH340 (data-only, GND chung) là điểm kết nối duy nhất
-
-Sau khi F103 hoạt động ổn định: hạ bánh xuống đất, test di chuyển thẳng ngắn + servo lái thực tế, verify lại calibration `ticks_per_rev`/`steering_trim_angular_z` phía Jetson (số cũ đo trên F446 + servo ID=1 chưa chắc còn đúng).
+**Tài liệu reference đã đọc** (trong `reference/`, đã .gitignore — license personal use only, không redistribute): schematic `SCH_Ros Robot Controller Mini V2.0.pdf`, protocol SDK `ros_robot_controller_sdk.py`, kinematics Ackermann chuẩn `1. Kinematics Analysis.pdf` (công thức bicycle model + bù vi sai bánh sau theo góc lái — tốt hơn `ackermann.c` hiện tại, cân nhắc áp dụng sau này dù không dùng full-stack Hiwonder).
 
 ### ✅ Đã giải quyết gần đây
+
+**Port firmware sang STM32F103C8T6 "Blue Pill" hoàn tất + verify đầy đủ (2026-07-21):**
+
+Sau khi F411 hỏng lần 3 khi nối Jetson (nghi ground loop, xem lịch sử bên dưới), chuyển sang F103C8T6 có sẵn. Tạo project CubeMX mới, port `motor_driver.c/h` (cộng dồn tràn số cho CẢ 2 encoder vì F103 không có timer 32-bit), copy nguyên `ackermann.c/h`, `jetson_comm.c/h`, `servo_buslinker.c/h`. Bật NVIC USART2 đúng ngay từ đầu (áp dụng bài học từ F411). Phát hiện + sửa 2 lỗi cấu hình lúc kiểm tra project CubeMX (trước khi build lần đầu): SYS Debug để "No Debug" (sẽ khóa SWD vĩnh viễn sau lần nạp đầu — phải đổi "Serial Wire"), Clock giả định HSE 16MHz trong khi board thật là 8MHz (đã sửa PREDIV). Build sạch 0 lỗi 0 warning cả Debug/Release, thêm cờ linker `-u _printf_float -u _scanf_float` còn thiếu (jetson_comm.c dùng `%.1f`).
+
+**Đã verify đầy đủ trên phần cứng thật**: `$VEL`/`$ODO` round-trip, servo bám đúng góc + trim, watchdog dừng motor khi mất kết nối, motor+encoder chạy đúng ở duty đủ cao (30% không đủ thắng stiction hộp số, 80% chạy tốt), test tổ hợp motor+servo chạy đồng thời 10s không glitch (servo bám 100%, motor mượt sau khi sửa dây).
+
+**Debug đáng chú ý**: ban đầu nghi "chip treo" vì đọc thanh ghi SWD ra toàn 0 dù firmware đang chạy thật — hóa ra do lệnh `STM32_Programmer_CLI -r32` mặc định dùng connect mode "Normal" tự halt core khi attach; phải thêm `mode=HOTPLUG` mới đọc đúng giá trị thực (không phải bug firmware, chỉ là công cụ chẩn đoán tự gây nhiễu — bài học mới, khác vụ "chip treo cần power-cycle" của F411 trước đây).
+
+**Nguyên nhân "giật cục" motor khi chạy liên tục — đã xác định**: không phải nhiệt (sờ chip không nóng bất thường), không phải BMS pin (pin 80A/8000mAh dư dòng rất nhiều so với tải). Test tay: giữ chặt đầu nối 12V (B+/B-) → cải thiện, không hết hẳn (vẫn còn 1 lần đứng yên ~3.5s trong 20s). Ấn giữ dây **R_EN/L_EN** → motor quay nhanh hơn rõ rệt → xác nhận tiếp xúc lỏng ẩn tại R_EN/L_EN (đo tay ra đủ 5V vì vôn kế không rút dòng, nhưng mạch opto-coupler thật cần dòng qua LED thì bị sụt áp do lỏng dây — khớp đúng bài học cũ đã ghi). Hàn cứng B+/B-/R_EN/L_EN → thời gian đứng yên giảm từ 3.5-3.9s xuống còn 0.39s (cải thiện ~10 lần).
+
+**Đã push git** (commit `3e98901`, `5626521..3e98901 main -> main`) — `amr_stm32f103/` đã lên GitHub, giữ nguyên `amr_stm32f411/` không đổi để tham khảo lịch sử.
 
 **2 board STM32F446RE Nucleo hỏng liên tiếp (2026-07-07) → chuyển sang F411CEU6 "Black Pill", verify OK cùng ngày:**
 
 Board nóng bất thường dù chỉ cấp USB (không nối motor/12V) — nghi do dòng rò AC từ sạc laptop 2 chân + GND từng đấu xuyên qua chân board BTS7960 (ground bounce), tích lũy qua nhiều giờ test. Đã chuyển hẳn sang F411 + ST-Link rời, áp dụng GND kiểu star qua thanh terminal riêng. Trong lúc port firmware, phát hiện + sửa bug **thiếu cấu hình NVIC cho USART2** (nguyên nhân thật khiến `$VEL` không xử lý được, từng nghi oan là chip hỏng lần 3) — chi tiết đầy đủ xem "Migration firmware F446 → F411" trong Giai đoạn 2 ở trên.
 
 **Đã verify đầy đủ trên F411 (2026-07-07)**: giao tiếp `$VEL`/`$ODO`, 2 motor đồng bộ đúng chiều (không cần đảo dấu, khác F446), servo mới (ID=9, trim +1.5°) phản hồi đúng góc, test tổ hợp tiến/lùi/lái cùng lúc — encoder trái/phải khớp nhau.
+
+**🔴 F411 hỏng lần 3 khi nối Jetson (2026-07-07, cuối phiên trước) → đã chuyển sang F103, không lặp lại vấn đề:**
+
+F411 verify hoàn toàn OK trên Windows nhưng khi cắm sang Jetson thì hỏng — không nhận diện được gì qua SWD (power-cycle cũng không cứu được, khác lần trước). Setup lúc hỏng: Type-C (cấp nguồn) + CH340 (data, cổng USB khác) cắm Jetson **cùng lúc** — 2 đường USB độc lập. Giả thuyết nghi ngờ nhất (⚠️ chưa từng kiểm chứng thực nghiệm lặp lại): ground loop giữa 2 đường GND riêng biệt. Bài học phòng ngừa đã áp dụng cho F103 và sẽ áp dụng tiếp cho MiniROS Controller: chỉ 1 đường kết nối/nguồn duy nhất tới Jetson tại 1 thời điểm.
 
 **Mạch Motor Driver Hiwonder đã cháy (2026-07-05) → thay bằng BTS7960 x2, verify OK (2026-07-06):**
 
