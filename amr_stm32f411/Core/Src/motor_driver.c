@@ -47,12 +47,11 @@ static void set_channel_speed(int8_t speed, uint32_t ch_rpwm, uint32_t ch_lpwm)
 
 HAL_StatusTypeDef DRV_Motor_SetSpeed(int8_t left, int8_t right)
 {
-    /* Dây M+/M- và encoder A/B lắp lại từ đầu cho F411, khác quy ước vật lý
-     * so với F446 cũ -> KHÔNG đảo dấu bên phải nữa (bản F446 đảo dấu, nhưng
-     * đo thực nghiệm F411 cho thấy enc_l/enc_r đã ngược dấu nhau ngay cả khi
-     * đảo, nên bỏ đảo để test lại từ đầu). Đảo lại ở đây nếu đo ra cùng dấu. */
-    set_channel_speed(left,  TIM_CHANNEL_1, TIM_CHANNEL_2);
-    set_channel_speed(right, TIM_CHANNEL_3, TIM_CHANNEL_4);
+    /* Xác nhận thực nghiệm 2026-08-19 (dây M+/M- đổi sang DRV8871, quan sát
+     * trực tiếp bánh xe quay): bánh phải quay NGƯỢC so với bánh trái khi
+     * cùng lệnh dấu -> đảo dấu bên phải tại đây để 2 bánh cùng chiều thật. */
+    set_channel_speed(left,          TIM_CHANNEL_1, TIM_CHANNEL_2);
+    set_channel_speed((int8_t)(-right), TIM_CHANNEL_3, TIM_CHANNEL_4);
     return HAL_OK;
 }
 

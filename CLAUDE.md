@@ -12,18 +12,18 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 **Kiến trúc hệ thống:**
 
 ```
-[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F103C8T6 "Blue Pill"]
+[Jetson Orin Nano Super 8GB] ←→ UART/USB ←→ [STM32F411CEU6 "Black Pill"]
         (ROS2 Master)                              (Low-level Slave)
         ↑            ↑                              ↑                    ↑
-  IMX-219 Camera  RPLidar A1M8        [BTS7960 x2 (1 board/motor)]   USART1 (single-wire)
-  (lane detect)   (SLAM/Nav)          PWM (TIM3) + Encoder (TIM2/TIM4) ↓  qua điện trở nối tiếp ↓
-                                     JGB37-520 Motors              HTS-20H Servo (ID=9)
+  IMX-219 Camera  RPLidar A1M8        [DRV8871 x2 (1 module/motor)]   USART1
+  (lane detect)   (SLAM/Nav)          PWM (TIM3) + Encoder (TIM2/TIM4) ↓  qua board debug BusLinker-V2.5 ↓
+                                     JGB37-520 Motors              HTS-20H Servo (ID=1)
                                       (drive wheels)                (steering)
 ```
-> Servo lái nối **thẳng** vào STM32 (không qua TTL Bus Servo Debugging Board — board này đã hỏng, xem mục 8).
-> Motor driver **Hiwonder 4-Ch (I2C) đã cháy 2026-07-05, thay bằng BTS7960 x2 (PWM+DIR)** — encoder đấu thẳng vào STM32 qua TIM hardware Encoder Mode, không còn I2C/bit-bang. Xem mục 8.
-> **STM32 slave đã đổi từ F446RE Nucleo-64 → F411CEU6 "Black Pill" → STM32F103C8T6 "Blue Pill" (2026-07-21)** — 2 board F446RE rồi 1 board F411 liên tiếp hỏng (F411 chết khi nối Jetson, nghi ground loop qua 2 đường USB), chuyển sang F103 rời + ST-Link ngoài, **đã verify đầy đủ hoạt động ổn định** (comm/servo/watchdog/motor+encoder). Firmware nằm ở `amr_stm32f103/` (`amr_stm32f411/`/`firmware/` cũ giữ lại tham khảo lịch sử, không còn build/nạp). Xem mục 8.
-> **🔧 Đang đặt mua board Hiwonder "MiniROS Controller" (STM32F407, driver SA8870 tích hợp) để thay thế hoàn toàn STM32 rời hiện tại — ETA ~2026-08-04.** Quyết định giữ kiến trúc firmware tự viết (bare-metal, protocol ASCII `$VEL`/`$ODO`), KHÔNG chuyển sang full stack FreeRTOS của Hiwonder. Xem mục 8 "MiniROS Controller — kế hoạch thay thế".
+> **STM32 slave HIỆN TẠI: F411CEU6 "Black Pill" (board mới, khác board đã hỏng lần 3)** — không phải F103 nữa. Sau khi F103 verify xong (2026-07-21), quá trình debug "giật cục" BTS7960 tiếp diễn trên 1 board F411 mới mua khác; 2026-08-19 quyết định **bỏ kế hoạch MiniROS Controller** (tạm dừng, xem mục 8), dùng hẳn F411 + DRV8871 làm hướng chính. F103 (`amr_stm32f103/`) vẫn giữ nguyên, đã verify ổn định, là phương án dự phòng nếu cần quay lại.
+> **Motor driver: DRV8871 x2 (thay BTS7960 2026-08-19)** — chỉ 2 chân logic IN1/IN2 (không R_EN/L_EN), VM/GND/OUT1/OUT2 qua terminal vít. Đơn giản hơn BTS7960 hẳn, không cần rail 5V riêng cho driver. Xem mục 8.
+> **Servo quay lại dùng board debug TTL "BusLinker-V2.5" (mua mới, 2026-08-19)** — thay lối đấu điện trở tạm trước đây. Board chỉ có 1 đường nguồn vào (Vin 5-14V qua terminal) — chân "5V" trên header là OUTPUT tự sinh, KHÔNG cấp nguồn ngoài vào đó. `SERVO_ID` đổi từ 9 → **1** (đổi servo). Xem mục 8.
+> **🔧 Kế hoạch thay thế bằng Hiwonder "MiniROS Controller" TẠM DỪNG (2026-08-19)** — chưa xác nhận tình trạng đơn hàng, quyết định tiếp tục dùng F411 rời + DRV8871 thay vì chờ/chuyển sang MiniROS. Xem mục 8 "MiniROS Controller — kế hoạch thay thế" (đã đánh dấu tạm dừng).
 
 ---
 
@@ -58,11 +58,12 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 ### Cơ cấu chấp hành
 | Thiết bị | Model | Giao tiếp | Ghi chú |
 |---|---|---|---|
-| Drive Motor (×2) | JGB37-520 DC w/ Encoder | PWM (TIM3) + Encoder (TIM2/TIM8) | 12V, dòng stall ~2.3A, gear ratio 90:1 |
-| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (TTL, single-wire) | Góc lái Ackermann; STM32 nối **thẳng** qua điện trở nối tiếp (xem mục 8). **`SERVO_ID=9`** (servo hiện tại, không phải mặc định 1 — servo cũ khả năng hỏng, đổi sang con khác lúc migration F411) |
-| Motor Driver (×2, 1/motor) | BTS7960 43A module | PWM (RPWM/LPWM) + DIR (R_EN/L_EN) | Thay Hiwonder đã cháy — margin dòng rộng (~10A liên tục an toàn vs 2.3A stall). R_EN/L_EN **PHẢI nối 5V** (không phải 3.3V — xem mục 8) |
+| Drive Motor (×2) | JGB37-520 DC w/ Encoder | PWM (TIM3) + Encoder (TIM2/TIM4) | 12V, dòng stall ~2.3A, gear ratio 90:1 |
+| Steering Servo | HTS-20H Serial Bus Servo | Serial Bus (TTL, single-wire) | Góc lái Ackermann; qua board debug BusLinker-V2.5 (xem mục 8, 2026-08-19). **`SERVO_ID=1`** (đổi từ 9 → 1, đổi servo khác 2026-08-19) |
+| Motor Driver (×2, 1/motor) | DRV8871 module | PWM (IN1/IN2) | Thay BTS7960 (2026-08-19) — chỉ 2 chân logic, không R_EN/L_EN, VM/GND/OUT1/OUT2 qua terminal vít. Xem mục 8 |
+| TTL Bus Servo Board | Hiwonder TTL Bus Servo Debugging Board (BusLinker-V2.5) | UART 115200 (header) + Vin 5-14V (terminal) | Board mới mua thay board cũ đã hỏng — chân "5V" trên header là OUTPUT, KHÔNG cấp nguồn ngoài vào đó (xem mục 8) |
+| ~~Motor Driver BTS7960~~ | ~~BTS7960 43A module x2~~ | ~~PWM (RPWM/LPWM) + DIR~~ | **Thay bằng DRV8871 2026-08-19** — giữ lại tham khảo lịch sử "giật cục" ở mục 8 |
 | ~~Motor Driver Hiwonder~~ | ~~4-Ch Encoder Motor Driver~~ | ~~I2C~~ | **ĐÃ CHÁY 2026-07-05, không dùng nữa** — xem mục 8 |
-| ~~TTL Bus Servo Board~~ | ~~Hiwonder TTL Bus Servo Debugging Board~~ | — | **ĐÃ HỎNG, không dùng nữa** — thay bằng đấu trực tiếp STM32↔servo |
 
 ### Cảm biến
 | Thiết bị | Model | Giao tiếp | Topic ROS2 |
@@ -96,19 +97,19 @@ amr_ws/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32.ioc
-├── amr_stm32f411/          ← STM32 firmware CŨ (F411 Black Pill, đã hỏng lần 3 — giữ tham khảo, KHÔNG build/nạp nữa)
+├── amr_stm32f411/          ← STM32 firmware HIỆN TẠI (F411 Black Pill — board mới, khác board hỏng lần 3; DRV8871 từ 2026-08-19)
 │   ├── Core/Src/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32f411.ioc
-├── amr_stm32f103/          ← STM32 firmware HIỆN TẠI (F103 Blue Pill, build trên Windows, đã verify)
+├── amr_stm32f103/          ← STM32 firmware DỰ PHÒNG (F103 Blue Pill, đã verify ổn định 2026-07-21, không phải board đang dùng)
 │   ├── Core/Src/           ← Application code
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32f103.ioc
 ├── reference/              ← Tài liệu Hiwonder MiniROS/JetAcker (đã .gitignore, KHÔNG push git — license personal use only)
 ├── docs/
-│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 (pin table, star ground, phân phối nguồn — vẫn áp dụng nguyên tắc cho F103)
+│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 + DRV8871 + board debug servo (pin table, star ground, phân phối nguồn) — cũng publish dạng artifact riêng
 ├── CLAUDE.md
 └── README.md
 ```
@@ -271,18 +272,20 @@ screen /dev/ttyUSB0 115200
 minicom -D /dev/ttyUSB0 -b 115200
 ```
 
-### STM32 build/flash (Windows, F103 hiện tại)
+### STM32 build/flash (Windows, F411 hiện tại — đổi từ 2026-08-19)
 
 ```bash
-# Build headless (workspace đã import sẵn project amr_stm32f103)
+# Build headless (workspace đã import sẵn project amr_stm32f411)
 "C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/stm32cubeidec.exe" --launcher.suppressErrors -nosplash \
   -application org.eclipse.cdt.managedbuilder.core.headlessbuild \
   -data "c:/Users/admin/STM32CubeIDE/workspace_2.1.1" \
-  -cleanBuild amr_stm32f103
+  -cleanBuild amr_stm32f411
 
 # Nạp qua ST-Link rời
 "C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/tools/bin/STM32_Programmer_CLI.exe" \
-  -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f103/Debug/amr_stm32f103.elf" -v -rst
+  -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f411/Debug/amr_stm32f411.elf" -v -rst
+
+# (F103 dự phòng, lệnh tương tự: đổi amr_stm32f411 -> amr_stm32f103)
 
 # Kiểm tra ST-Link + cổng UART (CH340) đang nhận diện
 STM32_Programmer_CLI.exe -l
@@ -440,6 +443,33 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 
 **Đã verify đầy đủ trên F411 (2026-07-07)**: giao tiếp `$VEL`/`$ODO` qua CH340↔USART2, 2 motor chạy đồng bộ đúng chiều (không cần đảo dấu), servo ID=9 phản hồi đúng góc kèm trim, test tổ hợp tiến/lùi/lái đồng thời — encoder trái/phải khớp nhau ở cả 2 chiều.
 
+> Board F411 nói trên (2026-07-07) sau đó hỏng lần 3 khi nối Jetson (xem "Đã giải quyết gần đây"), dự án chuyển sang F103 làm chính (2026-07-21). Trong lúc chờ MiniROS Controller, mua **1 board F411 Black Pill khác** để tiếp tục dùng BTS7960 — board này gặp "giật cục" kéo dài (đã điều tra, xem memory phiên trước), rồi 2026-08-19 quyết định bỏ kế hoạch MiniROS, đổi driver BTS7960→DRV8871 trên chính board F411 này. Nội dung dưới đây là về board F411 thứ 2 này, KHÔNG phải board đã verify ở trên.
+
+**🔧 Chuyển hẳn sang F411 (board mới) + DRV8871, bỏ kế hoạch MiniROS (2026-08-19):**
+
+Quyết định: dùng F411 rời + DRV8871 x2 làm hướng chính, **tạm dừng** kế hoạch MiniROS Controller (xem mục "MiniROS Controller — kế hoạch thay thế", đã đánh dấu tạm dừng).
+
+- **Driver DRV8871 thay BTS7960**: chỉ 2 chân logic **IN1/IN2** (không R_EN/L_EN) — nối đúng vị trí RPWM/LPWM cũ (`PA6/PA7` trái, `PB0/PB1` phải). VM/GND/OUT1/OUT2 qua terminal vít (loại module đang dùng: 1 terminal 4 vị trí, VM×2/GND×2 cùng net, chỉ cần dùng 1 vị trí mỗi net). **Firmware KHÔNG cần sửa gì** — `motor_driver.c` vốn điều khiển kiểu "PWM 1 chân, chân kia = 0", DRV8871 dùng đúng interface này.
+- **Servo quay lại dùng board debug TTL BusLinker-V2.5** (mua mới) thay lối đấu điện trở tạm. Xác nhận qua user manual chính hãng (`reference/TTL Bus Servo Debugging Board/.../Servo Debug Board User Manual.pdf`) + đo thực tế: board chỉ có **1 đường nguồn vào duy nhất** — terminal `Vin (5~14V)` + `GND`. Header 4 chân `5V/TX/RX/GND` là cổng nối MCU — chân **5V là OUTPUT** tự sinh từ IC ổn áp trên board (đo ra ~5V dù không cấp gì vào đó, xác nhận đúng giả thuyết) — **KHÔNG được cấp nguồn ngoài vào chân này** (2 nguồn đấu đối đầu có thể hỏng IC ổn áp). Đấu: `PA9→RX board`, `PA10→TX board` (chéo), GND header dùng chung 1 dây về star với GND terminal Vin. Không cắm miniUSB debug cùng lúc với header STM32 (2 master tranh nhau TX/RX).
+- Sơ đồ đầy đủ đã cập nhật trong `docs/wiring-f411.html` (cũng publish dạng artifact riêng).
+
+**Bug: `SERVO_ID` sai (9 thay vì 1) khiến servo hoàn toàn im lặng dù comm đúng 100%:**
+- Sau khi đấu xong, `$VEL`→STM32 tính đúng `steer_deg` (verify qua `$ODO`) nhưng servo không nhúc nhích — đi qua nhiều bước chẩn đoán sai hướng trước khi user nhớ ra **đã đổi sang servo khác có ID=1**, trong khi `servo_buslinker.h` vẫn hardcode `SERVO_ID=9` (từ lần đổi servo cũ 2026-07-07). Servo bus chỉ phản hồi đúng ID được gán trong khung lệnh — sai ID thì im lặng hoàn toàn, không có lỗi/NAK báo ra.
+- **Fix**: `SERVO_ID` 9 → 1 trong `servo_buslinker.h`, build + nạp lại → servo phản hồi đúng ngay. **Bài học**: khi servo "không phản hồi" dù dây/nguồn/comm đều đúng, luôn hỏi lại "servo ID hiện tại có đúng với hardcode trong firmware không" trước khi nghi ngờ phần cứng khác.
+
+**Chiều bánh phải bị đảo — xác nhận thực nghiệm bằng quan sát trực tiếp (không phải đo encoder):**
+- Với dây/wiring DRV8871 mới, bánh phải quay ngược chiều so với bánh trái khi cùng lệnh dấu (quan sát trực tiếp bánh xe, không suy luận từ encoder). Fix: `DRV_Motor_SetSpeed()` trong `motor_driver.c` đảo dấu bên phải — `set_channel_speed((int8_t)(-right), TIM_CHANNEL_3, TIM_CHANNEL_4)`. **Quy ước dấu không cố định qua các lần đấu dây lại** — luôn đo/quan sát lại thực nghiệm sau mỗi lần đấu mới, đúng bài học đã ghi nhiều lần trong file này.
+
+**⚠️ Điều tra "giật cục" motor ở duty cao — 2 nguyên nhân khác nhau, 1 nguyên nhân CHƯA giải quyết dứt điểm:**
+
+1. **False alarm do script test (không phải hardware/firmware)**: script Python test ban đầu (đơn luồng: gửi → `sleep(0.1)` → đọc) khiến vòng lặp thỉnh thoảng trễ >300ms → watchdog `$VEL` firmware tự cắt cả 2 motor → trông giống "giật cục" dừng 1-2s lặp lại. Sửa bằng **thread riêng chỉ lo gửi `$VEL` mỗi ~50ms**, tách hoàn toàn khỏi việc đọc `$ODO` (đo được khoảng cách gửi thực tế ổn định ~50-54ms, an toàn so với ngưỡng 300ms) — xác nhận đây thuần là lỗi script, không phải phần cứng.
+2. **Giật cục thật, do dây M+/M- (OUT1/OUT2 → motor) quá nhỏ**: sau khi sửa script (timing đã đều), vẫn còn giật cục (dừng ~1-2s, lặp lại) ở duty cao (70%). Lay thử dây M+/M- lúc đang chạy → hành vi thay đổi ngay → xác nhận tiếp xúc lỏng, đúng cơ chế đã gặp nhiều lần trong dự án (dây nhỏ mang dòng công suất lớn ~2.3A, khác dây tín hiệu dòng logic nhỏ). Đổi sang dây to hơn → cải thiện rõ rệt, 1 lần test chạy liên tục 190+ giây không có lần dừng nào.
+3. **⚠️ CHƯA GIẢI QUYẾT DỨT ĐIỂM**: sau khi đổi dây, giật cục **vẫn tái xuất hiện** ở 1 lần quan sát sau đó — nghi còn sót lại 1 đoạn dây nhỏ/mối nối chưa hoàn thiện hết trên đường M+/M-. **Việc tiếp theo**: hoàn thiện toàn bộ đường M+/M- (không còn đoạn nào nhỏ hơn 18-20AWG, siết chặt terminal, không còn đoạn dupont/mối hàn yếu), rồi test lại bằng script có log đầy đủ (script `test_motor_forever.py` cũ bị mất log khi kill do Python buffer output — cần thêm `flush=True` khi viết lại).
+4. **Đã cân nhắc và loại bỏ giả thuyết điện áp encoder (3.3V)**: không khớp triệu chứng (bánh xe **thực sự dừng quay** quan sát bằng mắt, không phải encoder đọc sai trong khi motor vẫn quay) — encoder 3.3V là quyết định chủ động bảo vệ GPIO F411 (xem bài học #4 mục BTS7960 phía trên), **không thử đổi sang 5V** vì rủi ro cháy chân GPIO chưa xác nhận 5V-tolerant, không đáng đánh đổi cho giả thuyết ít khả năng đúng.
+5. **Bài học khái niệm quan trọng, dùng lại được cho các lần đấu dây sau này**: track PCB (dù mảnh) là khối đồng liền, điện trở cố định → chỉ gây sụt áp đều, không giật cục. Dây rời + đầu nối (dupont/terminal chưa chặt) là tiếp xúc cơ khí, điện trở thay đổi theo rung động/nhiệt → đây mới là nguồn gốc giật chập chờn. Board Hiwonder 4-Ch cũ (track PCB mảnh) chạy ổn định (không giật) nhưng vẫn cháy sau cùng — 2 kiểu lỗi khác nhau (nhiệt tích lũy do thiếu margin dòng, KHÔNG phải giật cục) dù cùng gốc "dòng lớn qua đường dẫn mảnh".
+
+**File đã sửa (2026-08-19, session này)**: `amr_stm32f411/Core/Inc/servo_buslinker.h` (SERVO_ID 9→1), `amr_stm32f411/Core/Src/motor_driver.c` (đảo dấu bánh phải), `docs/wiring-f411.html` (sơ đồ DRV8871 + board debug servo).
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
@@ -505,15 +535,16 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 - [ ] Điều hướng tự động A → B
 
 ### Quyết định kỹ thuật đã chốt
-- **STM32 slave: F103C8T6 "Blue Pill" rời + ST-Link ngoài** — thay F411 sau khi hỏng lần 3 khi nối Jetson (2026-07-07, nghi ground loop). Firmware tại `amr_stm32f103/`, đã verify đầy đủ 2026-07-21 (xem "Đã giải quyết gần đây").
-- **🔧 Đang đặt mua Hiwonder "MiniROS Controller" (STM32F407 + driver SA8870 tích hợp) để thay thế hoàn toàn bộ STM32 rời** — ETA ~2026-08-04. Quyết định giữ kiến trúc firmware tự viết hiện tại (bare-metal, `$VEL`/`$ODO` ASCII), KHÔNG chuyển sang FreeRTOS full-stack của Hiwonder. Xem chi tiết ở "MiniROS Controller — kế hoạch thay thế" bên dưới.
-- Motor driver: **BTS7960 x2 (1 board/motor)**, điều khiển PWM (RPWM/LPWM qua TIM3, 20kHz, ARR=3599 ở 72MHz trên F103) + DIR (R_EN/L_EN nối cứng 5V, **PHẢI hàn cứng không qua dupont** — xem bài học "giật cục" trong "Đã giải quyết gần đây") — thay Hiwonder I2C đã cháy 2026-07-05. Sẽ được thay bằng driver SA8870 tích hợp sẵn trên board MiniROS khi hàng về.
-- Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái + TIM4 phải, **cả 2 đều 16-bit trên F103** — khác F411 có TIM2 32-bit), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32), không còn qua I2C
-- Servo lái: HTS-20H (**ID=9**), USART1 PA9(TX)/PA10(RX), 115200 baud — nối **trực tiếp** qua điện trở nối tiếp ~1kΩ (không qua debug board, đã hỏng), trim `+1.5°` bù lệch cơ khí
+- **STM32 slave HIỆN TẠI (2026-08-19): F411CEU6 "Black Pill" rời (board mới) + ST-Link ngoài** — không phải F103 nữa. F103 (`amr_stm32f103/`) vẫn giữ nguyên, đã verify ổn định 2026-07-21, giữ làm phương án dự phòng.
+- **⏸️ Kế hoạch Hiwonder "MiniROS Controller" TẠM DỪNG (2026-08-19)** — xem "MiniROS Controller — kế hoạch thay thế" bên dưới (đã đánh dấu tạm dừng). Quyết định tiếp tục dùng F411 rời + DRV8871 thay vì chuyển sang MiniROS.
+- Motor driver: **DRV8871 x2 (1 module/motor), thay BTS7960 2026-08-19** — chỉ 2 chân logic IN1/IN2 (PA6/PA7 trái, PB0/PB1 phải), không R_EN/L_EN, VM/GND/OUT1/OUT2 qua terminal vít, dây ≥18-20AWG. Firmware không đổi (cùng interface "PWM 1 chân, chân kia=0"). Xem mục "Chuyển hẳn sang F411 (board mới) + DRV8871" phía trên.
+- Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái 32-bit + TIM4 phải 16-bit trên F411), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32, đã cân nhắc và loại bỏ giả thuyết đổi 5V khi debug giật cục 2026-08-19)
+- Servo lái: HTS-20H (**`SERVO_ID=1`**, đổi từ 9 → 1 ngày 2026-08-19), USART1 PA9(TX)/PA10(RX), 115200 baud — qua board debug BusLinker-V2.5 (chỉ 1 đường nguồn Vin 5-14V qua terminal, chân 5V header là OUTPUT không phải input), trim `+1.5°` bù lệch cơ khí (**cần verify lại trim sau khi đổi servo ID=1**, chưa làm)
+- Chiều motor: bánh phải **đảo dấu** trong `DRV_Motor_SetSpeed()` cho wiring DRV8871 hiện tại (xác nhận thực nghiệm 2026-08-19 bằng quan sát trực tiếp) — quy ước dấu KHÔNG cố định qua các lần đấu dây lại, luôn đo/quan sát lại sau mỗi lần đấu mới
+- **⚠️ Giật cục motor ở duty cao: CHƯA giải quyết dứt điểm** — đã xác định 2 nguyên nhân (script test timing đã fix; dây M+/M- nhỏ đã cải thiện nhưng còn tái xuất hiện) — xem chi tiết đầy đủ ở trên, việc tiếp theo là hoàn thiện dây M+/M-
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
-- Chiều motor: **CHƯA xác nhận thực nghiệm trên F103** (khác F411 không đảo dấu, F446 phải đảo — luôn đo lại `enc_l`/`enc_r` khi tiến thẳng sau mỗi lần đấu dây lại từ đầu)
 - Kích thước xe: L=304mm, W=268mm, H=84mm, wheelbase=210mm, track=217mm, r_wheel=100mm
 
 > BusLinker protocol LEN=7, MOTOR_TYPE register `0x14=3`, motor channel CH1/CH2 — các mục này thuộc kiến trúc I2C/Hiwonder cũ, không còn áp dụng nhưng giữ lại trong lịch sử "I2C Bit-bang" (Giai đoạn 2) để tham khảo nếu quay lại driver kiểu register-based sau này.
@@ -532,7 +563,9 @@ Kết luận: khi gặp "không phản hồi" mà lỗi rất giống hỏng ph�
 11. **`STM32_Programmer_CLI -r32` mặc định connect mode "Normal" tự halt core khi attach** → đọc thanh ghi ra toàn 0 dù firmware đang chạy thật (giả "chip treo"). Phải thêm `mode=HOTPLUG` để đọc đúng giá trị real-time không làm gián đoạn core
 12. **R_EN/L_EN (hoặc bất kỳ chân enable nào qua opto-coupler) tiếp xúc lỏng có thể đo tay ra ĐỦ điện áp nhưng vẫn lỗi chức năng** — vôn kế gần như không rút dòng nên không phát hiện được sụt áp thật khi mạch cần dòng qua LED opto. Test bằng cách ấn/lay dây trong lúc mạch đang hoạt động thật, không chỉ đo tĩnh
 
-### 🔧 MiniROS Controller — kế hoạch thay thế (2026-07-21)
+### ⏸️ MiniROS Controller — kế hoạch thay thế (2026-07-21, TẠM DỪNG 2026-08-19)
+
+> **Cập nhật 2026-08-19: TẠM DỪNG kế hoạch này.** Quyết định tiếp tục dùng F411 rời + DRV8871 x2 (xem mục "Chuyển hẳn sang F411 (board mới) + DRV8871, bỏ kế hoạch MiniROS" ở Giai đoạn 2) thay vì chuyển sang MiniROS Controller. Chưa xác nhận tình trạng đơn hàng/hàng đã về hay chưa. Giữ lại toàn bộ nội dung bên dưới để tham khảo nếu quay lại hướng này sau.
 
 Đã đặt mua board Hiwonder **"MiniROS Controller"** (STM32F407VETx, không phải chỉ driver rời) — ETA ~14 ngày (~2026-08-04). Đọc kỹ schematic + protocol SDK + tài liệu kinematics thật trong `reference/` (xem chi tiết dưới) trước khi hàng về, để có kế hoạch rõ ràng ngay khi bắt tay vào.
 

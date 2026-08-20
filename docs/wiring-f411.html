@@ -178,13 +178,31 @@
   <header class="top">
     <p class="eyebrow">AMR Ackermann — HUST Automotive Engineering</p>
     <h1>Sơ đồ đấu dây STM32F411 (Black Pill)</h1>
-    <p class="sub">Tổng hợp toàn bộ pin, phân phối nguồn, và cách nối GND kiểu star — sau sự cố hỏng 2 board STM32 do stress điện áp tích lũy. Làm đúng thứ tự, không rút gọn bước nào.</p>
+    <p class="sub">Driver motor: <strong>DRV8871 ×2</strong> (thay BTS7960). Servo: qua <strong>board debug TTL bus servo</strong> (thay lối đấu điện trở tạm). Tổng hợp toàn bộ pin, phân phối nguồn, và cách nối GND kiểu star — làm đúng thứ tự, không rút gọn bước nào.</p>
   </header>
 
   <div class="callout" style="--warn: var(--signal); --warn-bg: var(--signal-bg); --warn-border: var(--signal);">
-    <div class="label">Nguồn 5V cho R_EN/L_EN — dùng module hạ áp riêng</div>
-    <p>Black Pill vẫn cấp nguồn qua <strong>ST-Link chân 3.3V</strong> như thiết lập ban đầu — không đụng tới chân 5V/VIN mơ hồ trên board, tránh rủi ro đoán nhầm chân.</p>
-    <p>5V cho R_EN/L_EN lấy từ <strong>module hạ áp 12V→5V riêng</strong> (đã có sẵn), cấp thẳng từ rail 12V — độc lập hoàn toàn với Black Pill/ST-Link. GND của module này vẫn là 1 nhánh trong sơ đồ star ở mục 02, không tạo điểm mass mới.</p>
+    <div class="label">2026-08-15 — Đổi driver BTS7960 → DRV8871, servo quay lại dùng board debug TTL</div>
+    <p>DRV8871 không có R_EN/L_EN (chỉ IN1/IN2 + VM/GND + OUT1/OUT2 qua terminal vít) — bỏ hẳn rail 5V từng nuôi riêng cho R_EN/L_EN của BTS7960.</p>
+    <p>Firmware <strong>không đổi gì</strong>: <span class="mono">motor_driver.c</span> vốn điều khiển kiểu "PWM 1 chân, chân kia = 0" — DRV8871 IN1/IN2 dùng đúng interface này. <span class="mono">servo_buslinker.c</span> vốn gửi khung BusLinker qua USART1, đúng giao thức board debug hiểu — lối đấu điện trở trước đây chỉ là bản chữa cháy khi board debug gốc hỏng.</p>
+  </div>
+
+  <div class="callout" style="--warn: var(--power); --warn-bg: var(--power-bg); --warn-border: var(--power);">
+    <div class="label">⚠️ Board debug servo (BusLinker-V2.5) — KHÔNG cấp 5V ngoài vào chân 5V header</div>
+    <p>Theo user manual chính hãng (<span class="mono">reference/TTL Bus Servo Debugging Board/</span>): board chỉ có <strong>1 đường nguồn vào duy nhất</strong> — terminal vít <span class="pin">Vin (5~14V)</span> + <span class="pin">GND</span>. Header 4 chân <span class="mono">5V TX RX GND</span> là cổng nối vi điều khiển ngoài — chân <strong>5V ở đây là OUTPUT</strong> do IC ổn áp trên board tự tạo ra từ Vin, không phải input cần cấp nguồn.</p>
+    <p>Nếu bơm thêm nguồn 5V ngoài vào chân này, nguồn ngoài sẽ đấu đối đầu với chính IC ổn áp trên board (2 nguồn cùng cố giữ 1 điểm ở 2 giá trị) → có thể hỏng IC ổn áp. <strong>Chỉ cấp Vin/GND qua terminal, để trống chân 5V trên header.</strong> Module hạ áp 12V→5V dự phòng không cần dùng cho board này nữa.</p>
+    <p>Xác nhận trước khi tin hẳn: cấp riêng Vin/GND (chưa nối gì vào header) → đo chân 5V header, nếu tự ra ~5V mà chưa cấp gì vào đó thì đúng là output, an toàn để bỏ trống.</p>
+  </div>
+
+  <div class="callout">
+    <div class="label">⚠️ Dây/đầu nối cho đường công suất — KHÔNG dùng dupont/breadboard</div>
+    <p>Phát hiện 2026-07-26 khi đấu lại board F411 (lúc còn dùng BTS7960): dây jumper/dupont (thường 26-28 AWG, đầu pin tiếp xúc diện tích nhỏ) không đủ tải dòng motor stall ~2.3A/con — gây giật cục tăng dần theo thời gian chạy (tiếp xúc kém → nóng → điện trở tăng → nóng hơn, vòng lặp tự làm xấu). Đúng gốc rễ y hệt vụ R_EN/L_EN lỏng trên F103 trước đó, chỉ khác biểu hiện. DRV8871 dùng terminal vít cho đúng các đường này nên đỡ rủi ro hơn, nhưng vẫn cần dây đủ to và vặn vít chặt.</p>
+    <p><strong>Bắt buộc cho các đường sau</strong>: <span class="pin">VM</span>, <span class="pin">GND</span>, <span class="pin">OUT1</span>, <span class="pin">OUT2</span> của cả 2 DRV8871, và terminal <span class="pin">12V</span> của board debug servo:</p>
+    <ul>
+      <li>Dây tối thiểu <strong>18-20 AWG</strong> (0.5-0.75mm²)</li>
+      <li>Siết vít terminal chặt tay, kiểm tra lay thử không tuột — nếu không có terminal vít (đường nào vẫn phải dùng dupont) thì bắt buộc hàn</li>
+    </ul>
+    <p>Dupont/breadboard chỉ nên dùng cho tín hiệu logic dòng thấp: PWM (PA6/PA7/PB0/PB1 → IN1/IN2), encoder, USART, SWD.</p>
   </div>
 
   <section>
@@ -193,16 +211,16 @@
       <table>
         <thead><tr><th>Chân</th><th>Chức năng</th><th>Nối tới</th><th>Loại</th></tr></thead>
         <tbody>
-          <tr><td class="pin">PA6</td><td class="mono">TIM3_CH1</td><td>RPWM — board trái</td><td><span class="tag signal">Signal</span></td></tr>
-          <tr><td class="pin">PA7</td><td class="mono">TIM3_CH2</td><td>LPWM — board trái</td><td><span class="tag signal">Signal</span></td></tr>
-          <tr><td class="pin">PB0</td><td class="mono">TIM3_CH3</td><td>RPWM — board phải</td><td><span class="tag signal">Signal</span></td></tr>
-          <tr><td class="pin">PB1</td><td class="mono">TIM3_CH4</td><td>LPWM — board phải</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA6</td><td class="mono">TIM3_CH1</td><td>DRV8871 trái — IN1</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA7</td><td class="mono">TIM3_CH2</td><td>DRV8871 trái — IN2</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB0</td><td class="mono">TIM3_CH3</td><td>DRV8871 phải — IN1</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PB1</td><td class="mono">TIM3_CH4</td><td>DRV8871 phải — IN2</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PA0</td><td class="mono">TIM2_CH1</td><td>Encoder trái — kênh A</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PA1</td><td class="mono">TIM2_CH2</td><td>Encoder trái — kênh B</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PB6</td><td class="mono">TIM4_CH1</td><td>Encoder phải — kênh A <em>(đổi từ PC6 trên F446)</em></td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PB7</td><td class="mono">TIM4_CH2</td><td>Encoder phải — kênh B <em>(đổi từ PC7 trên F446)</em></td><td><span class="tag signal">Signal</span></td></tr>
-          <tr><td class="pin">PA9</td><td class="mono">USART1_TX</td><td>Servo SIG — qua trở 1KΩ</td><td><span class="tag signal">Signal</span></td></tr>
-          <tr><td class="pin">PA10</td><td class="mono">USART1_RX</td><td>Servo SIG — nối thẳng (cùng node PA9)</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA9</td><td class="mono">USART1_TX</td><td>Board debug servo — RX</td><td><span class="tag signal">Signal</span></td></tr>
+          <tr><td class="pin">PA10</td><td class="mono">USART1_RX</td><td>Board debug servo — TX</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PA2</td><td class="mono">USART2_TX</td><td>Jetson RX / CH340 RX (lúc test)</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">PA3</td><td class="mono">USART2_RX</td><td>Jetson TX / CH340 TX (lúc test)</td><td><span class="tag signal">Signal</span></td></tr>
           <tr><td class="pin">SWCLK / SWDIO</td><td class="mono">SWD</td><td>ST-Link — nạp code</td><td><span class="tag signal">Signal</span></td></tr>
@@ -220,9 +238,9 @@
       <div class="star-grid">
         <div class="star-hub">Thanh terminal GND (bus bar) — 1 dây duy nhất ra cực (–) Pin 12V</div>
         <div class="star-leg"><div class="box"><strong>STM32 GND</strong><span>dây riêng, không qua board nào khác</span></div></div>
-        <div class="star-leg"><div class="box"><strong>BTS7960 trái</strong><span>B- + GND logic</span></div></div>
-        <div class="star-leg"><div class="box"><strong>BTS7960 phải</strong><span>B- + GND logic</span></div></div>
-        <div class="star-leg"><div class="box"><strong>Servo GND</strong><span>dây riêng</span></div></div>
+        <div class="star-leg"><div class="box"><strong>DRV8871 trái</strong><span>GND</span></div></div>
+        <div class="star-leg"><div class="box"><strong>DRV8871 phải</strong><span>GND</span></div></div>
+        <div class="star-leg"><div class="box"><strong>Board debug servo</strong><span>GND (1 dây, board tự lo GND cho servo)</span></div></div>
         <div class="star-leg"><div class="box"><strong>Encoder trái GND</strong><span>dây riêng</span></div></div>
         <div class="star-leg"><div class="box"><strong>Encoder phải GND</strong><span>dây riêng</span></div></div>
       </div>
@@ -231,7 +249,7 @@
 
     <div class="callout" style="--warn: var(--ground); --warn-bg: var(--ground-bg); --warn-border: var(--ground);">
       <div class="label">Vì sao phải làm vậy</div>
-      <p>Nếu GND của STM32 đi chung dây với GND của board BTS7960 (nơi dòng motor lớn chạy qua), dòng lớn đó gây sụt áp cục bộ trên chính đoạn dây chung — điện thế "GND" mà STM32 nhìn thấy không còn thực sự là 0V nữa. Chênh lệch này tạo dòng rò qua chân GPIO, tích lũy nhiệt qua nhiều giờ test — nghi vấn chính cho việc hỏng 2 board STM32 vừa qua.</p>
+      <p>Nếu GND của STM32 đi chung dây với GND của board driver motor (nơi dòng motor lớn chạy qua), dòng lớn đó gây sụt áp cục bộ trên chính đoạn dây chung — điện thế "GND" mà STM32 nhìn thấy không còn thực sự là 0V nữa. Chênh lệch này tạo dòng rò qua chân GPIO, tích lũy nhiệt qua nhiều giờ test — nghi vấn chính cho việc hỏng 2 board STM32 F446 trước đây.</p>
     </div>
   </section>
 
@@ -245,12 +263,11 @@
           <tr>
             <td><span class="tag power">12V</span></td>
             <td>Pin 3S2P (qua BMS)</td>
-            <td>B+ board trái · B+ board phải · VIN servo</td>
+            <td>VM DRV8871 trái · VM DRV8871 phải · Terminal Vin board debug servo (board tự hạ áp nội bộ, pass-through VIN servo)</td>
           </tr>
           <tr>
             <td><span class="tag power">5V</span></td>
-            <td>Module hạ áp 12V→5V riêng (độc lập với Black Pill)</td>
-            <td>VCC + R_EN + L_EN — cả 2 board BTS7960</td>
+            <td colspan="2"><em>Không dùng nữa</em> — DRV8871 không cần (không có R_EN/L_EN), board debug servo tự tạo 5V nội bộ từ Vin, không cần cấp ngoài (xem cảnh báo ở trên). Module hạ áp 12V→5V dự phòng, chưa cần dùng.</td>
           </tr>
           <tr>
             <td><span class="tag signal">3.3V</span></td>
@@ -270,26 +287,24 @@
   <section>
     <h2><span class="num">04</span>Từng thiết bị</h2>
 
-    <h3>BTS7960 — board trái</h3>
+    <h3>DRV8871 — board trái</h3>
+    <p>Terminal vít nguồn (VM/GND) có 2 vị trí/net mỗi loại (chỉ để tiện chain) — <strong>dùng 1 vị trí mỗi net là đủ</strong>, vị trí còn lại để trống.</p>
     <div class="table-wrap">
       <table>
         <tbody>
-          <tr><td>B+</td><td>Rail 12V</td></tr>
-          <tr><td>B-</td><td>Dây riêng → thanh terminal GND</td></tr>
-          <tr><td>VCC</td><td>Rail 5V</td></tr>
-          <tr><td>GND (logic)</td><td>Dây riêng → thanh terminal GND</td></tr>
-          <tr><td>R_EN, L_EN</td><td>Rail 5V (không bắt buộc nối chung nhau, chỉ cần cùng chạm 5V)</td></tr>
-          <tr><td>RPWM</td><td class="pin">PA6</td></tr>
-          <tr><td>LPWM</td><td class="pin">PA7</td></tr>
-          <tr><td>M+, M-</td><td>2 dây động lực motor trái (không phân biệt chiều)</td></tr>
+          <tr><td>VM</td><td>Rail 12V — terminal vít, dây ≥18-20 AWG</td></tr>
+          <tr><td>GND</td><td>Dây riêng → thanh terminal GND — terminal vít, dây ≥18-20 AWG</td></tr>
+          <tr><td>IN1</td><td class="pin">PA6</td></tr>
+          <tr><td>IN2</td><td class="pin">PA7</td></tr>
+          <tr><td>OUT1, OUT2</td><td>2 dây động lực motor trái (không phân biệt chiều) — terminal vít, dây ≥18-20 AWG</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h3>BTS7960 — board phải</h3>
-    <p>Giống hệt board trái, đổi <span class="pin">RPWM → PB0</span>, <span class="pin">LPWM → PB1</span>, M+/M- → motor phải, GND/B- vẫn là nhánh star riêng của board này.</p>
+    <h3>DRV8871 — board phải</h3>
+    <p>Giống hệt board trái, đổi <span class="pin">IN1 → PB0</span>, <span class="pin">IN2 → PB1</span>, OUT1/OUT2 → motor phải, GND vẫn là nhánh star riêng của board này.</p>
 
-    <h3>Encoder (đấu thẳng vào STM32, không qua BTS7960)</h3>
+    <h3>Encoder (đấu thẳng vào STM32, không qua DRV8871)</h3>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Dây</th><th>Trái</th><th>Phải</th></tr></thead>
@@ -302,13 +317,19 @@
       </table>
     </div>
 
-    <h3>Servo HTS-20H</h3>
+    <h3>Board debug TTL bus servo (BusLinker-V2.5)</h3>
+    <p>Thay lối đấu điện trở tạm trước đây. Chỉ 1 đường nguồn vào — terminal Vin (5-14V) — board tự hạ áp nội bộ, KHÔNG cấp gì vào chân 5V trên header (xem cảnh báo ở đầu trang). Header nối STM32, terminal Vin cấp công suất, 3 dây ra servo (VIN/GND/SIG). <strong>Không cắm miniUSB debug cùng lúc với header STM32</strong> — 2 master tranh nhau lái TX/RX gây xung đột.</p>
     <div class="table-wrap">
       <table>
         <tbody>
-          <tr><td>VIN</td><td>Rail 12V</td></tr>
-          <tr><td>GND</td><td>Nhánh star riêng</td></tr>
-          <tr><td>SIG</td><td>Node giữa <span class="pin">PA10</span> và trở 1KΩ (trở còn lại nối <span class="pin">PA9</span>)</td></tr>
+          <tr><td>5V (header)</td><td><strong>Để trống</strong> — đây là output của board, không phải input</td></tr>
+          <tr><td>TX (header)</td><td class="pin">PA10</td></tr>
+          <tr><td>RX (header)</td><td class="pin">PA9</td></tr>
+          <tr><td>GND (header)</td><td>Nhánh star riêng (1 dây duy nhất cho cả board, dùng chung với GND terminal)</td></tr>
+          <tr><td>Terminal Vin</td><td>Rail 12V (trong dải 5-14V board chấp nhận)</td></tr>
+          <tr><td>Servo VIN (ra)</td><td>VIN servo</td></tr>
+          <tr><td>Servo GND (ra)</td><td>GND servo (cùng net GND board)</td></tr>
+          <tr><td>Servo SIG (ra)</td><td>SIG servo</td></tr>
         </tbody>
       </table>
     </div>
@@ -332,13 +353,13 @@
       <li><span class="n">1</span>Lắp điểm phân phối nguồn (breadboard/terminal) — chưa cắm nguồn thật</li>
       <li><span class="n">2</span>Đấu toàn bộ 6 nhánh GND theo sơ đồ star trước tiên — đo thông mạch giữa các điểm GND (~0Ω)</li>
       <li><span class="n">3</span>Đấu dây tín hiệu (PWM, encoder, USART) — mỗi chân STM32 đúng 1 dây, cắm thẳng hết cỡ</li>
-      <li><span class="n">4</span>Đo điện trở B+/B- từng board BTS7960 (chưa cấp gì) — phải cao, không chập</li>
-      <li><span class="n">5</span>Cấp ST-Link (3.3V cho Black Pill) và module hạ áp (5V cho R_EN/L_EN) — đo lại từng rail xác nhận đúng giá trị</li>
-      <li><span class="n">6</span>Cuối cùng mới cấp 12V vào rail chính — sờ thử STM32 sau 10-15 giây đầu, dừng ngay nếu ấm bất thường</li>
+      <li><span class="n">4</span>Đo điện trở VM/GND từng DRV8871 và Vin/GND board debug servo (chưa cấp gì) — phải cao, không chập</li>
+      <li><span class="n">5</span>Cấp ST-Link (3.3V cho Black Pill) — đo lại xác nhận đúng giá trị. Board debug servo chưa cấp Vin vội, đo thử chân 5V header lúc này (phải chưa có gì)</li>
+      <li><span class="n">6</span>Cấp 12V vào rail chính (DRV8871 + Vin board debug servo) — sờ thử STM32 sau 10-15 giây đầu, dừng ngay nếu ấm bất thường. Đo lại chân 5V header board debug servo, xác nhận tự ra ~5V (output) rồi mới yên tâm để trống chân đó</li>
     </ol>
   </section>
 
   <footer>
-    Cập nhật theo phiên debug BTS7960 + migration F446 → F411. Xem <span class="mono">CLAUDE.md</span> mục 8 để biết lịch sử đầy đủ.
+    Cập nhật theo phiên đổi driver BTS7960 → DRV8871 + servo qua board debug TTL BusLinker-V2.5, đối chiếu user manual chính hãng (2026-08-15), phiên debug BTS7960 + migration F446 → F411, và bài học dây/đầu nối công suất 2026-07-26. Xem <span class="mono">CLAUDE.md</span> mục 8 để biết lịch sử đầy đủ.
   </footer>
 </div>

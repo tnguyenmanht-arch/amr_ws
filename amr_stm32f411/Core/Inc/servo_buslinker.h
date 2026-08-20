@@ -11,8 +11,8 @@ extern "C" {
 /* ===== Cấu hình servo HTS-20H =====
  * Ket noi: STM32 USART1 TX(PA9)/RX(PA10) → Hiwonder TTL Bus Servo Debugging Board → HTS-20H */
 
-/* ID servo — con servo test hiện tại có ID=9 (xác nhận thực tế, không phải mặc định 1) */
-#define SERVO_ID                9
+/* ID servo — đổi sang servo khác có ID=1 (xác nhận thực tế 2026-08-19, servo trước là ID=9) */
+#define SERVO_ID                1
 
 /* Vùng vị trí servo: 0 ~ 1000 tương ứng 0° ~ 240° toàn bộ dải cơ khí */
 #define SERVO_POS_MIN           0
