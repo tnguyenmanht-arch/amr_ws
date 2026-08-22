@@ -470,6 +470,66 @@ Quyết định: dùng F411 rời + DRV8871 x2 làm hướng chính, **tạm d�
 
 **File đã sửa (2026-08-19, session này)**: `amr_stm32f411/Core/Inc/servo_buslinker.h` (SERVO_ID 9→1), `amr_stm32f411/Core/Src/motor_driver.c` (đảo dấu bánh phải), `docs/wiring-f411.html` (sơ đồ DRV8871 + board debug servo).
 
+**🔬 BNO055 (GY-BNO055) — test độc lập trước khi tích hợp (2026-08-19):**
+
+Test cảm biến IMU rời (module clone GY-BNO055, Shopee, 8 chân VIN/GND/SCL-Rx/SDA-Tx/ADD/INT/BOOT/REST) qua I2C1 trên chính `amr_stm32f411/` — project đang chạy thật, KHÔNG đụng PWM/Encoder/USART1/USART2 hiện có. Chỉ để xác nhận module sống trước khi quyết định tích hợp, CHƯA route vào `ackermann.c`/`jetson_comm.c`.
+
+- **Wiring breadboard (chưa hàn cố định)**: VIN→3.3V, GND→GND, SCL\Rx→**PB8**, SDA\Tx→**PB9** (xác nhận rảnh — đối chiếu `amr_stm32f411.ioc` trước khi thêm, chỉ dùng PA0/PA1/PA2/PA3/PA6/PA7/PB0/PB1/PA9/PA10 + TIM3 clock nội), ADD/INT/BOOT/REST thả nổi.
+- **File tạo mới (không đổi qua các lần thử)**: `Core/Inc/bno055_test.h`, `Core/Src/bno055_test.c` (`BNO055_Test_Init` quét địa chỉ 0x28→0x29 bằng `HAL_I2C_IsDeviceReady`, đọc `CHIP_ID` nếu ACK, chuyển NDOF mode nếu đúng `0xA0`; `BNO055_Test_ReadHeading` đọc `EUL_HEADING_LSB/MSB` chia 16.0 ra độ). Gọi 1 lần trong `USER CODE BEGIN 2` (sau `APP_Comm_Init`), gửi kết quả qua `APP_Comm_DebugPrint()` có sẵn (raw register TX, không đụng HAL UART lock) dạng `$IMU,<found>,<addr hex>,<chip_id hex>\n`, đọc được qua CH340 lẫn với `$ODO`. Đọc heading (nếu found=1) đặt SAU logic động cơ/servo trong `while(1)`, throttle 150ms bằng `HAL_GetTick()` (không `HAL_Delay` lớn, không ảnh hưởng watchdog `$VEL` 300ms).
+
+**Lần thử 1 — viết tay `MX_I2C1_Init()`/MSP, không dùng CubeMX generate:**
+- Không tìm được lệnh headless code-gen (`.ioc` → C) đã xác nhận an toàn trong bộ STM32CubeIDE 2.1.1 (khác lệnh build ở mục 6, lệnh đó chỉ compile). Viết tay `MX_I2C1_Init()` + `HAL_I2C_MspInit/MspDeInit` bám sát pattern CubeMX (Standard 100kHz, `GPIO_MODE_AF_OD` + `GPIO_PULLUP`, `GPIO_SPEED_FREQ_LOW`, không NVIC).
+- 2 bug build đã gặp + fix: (1) `stm32f4xx_hal_conf.h` comment sẵn `/* #define HAL_I2C_MODULE_ENABLED */` — phải bỏ comment. (2) `Drivers/STM32F4xx_HAL_Driver/{Inc,Src}` thiếu hẳn `stm32f4xx_hal_i2c[.c/.h]` + `_ex` (CubeMX chỉ copy file cho peripheral đã cấu hình từ đầu, I2C chưa từng thêm nên thiếu file, không phải lỗi cấu hình) — copy 4 file này từ 1 project STM32F4 chuẩn khác trong `reference/` (xác nhận đúng source gốc STMicroelectronics/MCD Application Team, an toàn dùng dù `reference/` nói chung ghi "personal use only" cho code/tài liệu riêng của Hiwonder).
+- Build sạch, nạp, test: **`found=0`** (`$IMU,0,0x00,0x00`) — không ACK ở cả 0x28 lẫn 0x29.
+- ⚠️ **Nguyên nhân thật (phát hiện sau)**: lúc test này **chưa cấp nguồn VIN 3.3V** cho module (user quên, xác nhận lại sau) — `found=0` là hệ quả tất yếu của việc module chưa có điện, **không phải bằng chứng cho việc module ở UART mode, và cũng không có bằng chứng quy được cho code viết tay sai** (thiếu điện thì bất kỳ cách viết code I2C nào, kể cả CubeMX generate chuẩn, cũng cho kết quả y hệt). Kết luận "nghi UART mode" ở bản ghi trước đó của mục này là **kết luận vội, đã bị thay thế** — giữ lại bài học quy trình bên dưới, không phải kết luận về module.
+
+**Lần thử 2 — làm lại đúng quy trình an toàn hơn (theo yêu cầu user, để loại trừ khả năng code viết tay sai):**
+- Revert sạch toàn bộ code I2C1 viết tay (`main.h`, `main.c`, `stm32f4xx_hal_msp.c`, `stm32f4xx_hal_conf.h`) về đúng bản gốc trước khi có I2C1 (xác nhận bằng `git diff` = rỗng) — giữ nguyên `bno055_test.h/.c` (logic không phụ thuộc cách I2C1 được init).
+- Mở `amr_stm32f411.ioc` bằng **STM32CubeIDE GUI thật** (Device Configuration Tool): Connectivity → I2C1 → Mode I2C; xác nhận Pinout tự gán đúng **PB8=SCL/PB9=SDA** (F411 có 2 vị trí khả dụng cho I2C1, PB6/PB7 kia đang bận TIM4 encoder — phải kiểm tra kỹ tránh xung đột); Parameter Settings: Standard Mode, 100000Hz; NVIC: không tick — rồi Generate Code.
+- **Diff sau generate xác nhận an toàn**: `stm32f4xx_hal_conf.h` đổi đúng 1 dòng; `main.c` +38 dòng thuần thêm (`hi2c1`, `MX_I2C1_Init()`); `stm32f4xx_hal_msp.c` +68 dòng thuần thêm (`HAL_I2C_MspInit/MspDeInit`) — **không dòng nào trong TIM2/TIM3/TIM4/USART1/USART2 bị sửa/xóa**.
+- **So sánh với bản viết tay**: `MX_I2C1_Init()` CubeMX sinh ra **giống hệt 100%** bản viết tay trước đó (cùng `ClockSpeed=100000`, `DutyCycle`, mọi field) — phần logic Init không hề sai. Chỉ khác ở GPIO MSP: CubeMX dùng `GPIO_NOPULL` (bản viết tay dùng `GPIO_PULLUP`) và `GPIO_SPEED_FREQ_VERY_HIGH` (bản viết tay dùng `GPIO_SPEED_FREQ_LOW`) — đây là default thật của CubeMX cho I2C, giữ nguyên không tự sửa lại.
+- Nối lại lời gọi `BNO055_Test_Init()`/`BNO055_Test_ReadHeading()` vào đúng vị trí cũ trong `main.c` (dùng `hi2c1` mới). Build sạch 0 lỗi 0 warning.
+- **Xác nhận đã cấp VIN→3.3V thật trước khi nạp lần này** (khác lần thử 1).
+- **✅ Kết quả: `found=1`** — `$IMU,1,0x29,0xA0` (t=0.809s sau reset). Địa chỉ **0x29** (không phải 0x28 mặc định — chân ADD của module này thả nổi nhưng resolve về mức khiến địa chỉ là 0x29, không phải lỗi). **CHIP_ID = 0xA0, đúng datasheet Bosch.**
+- **Xác nhận heading sống**: đọc `$IMUH` liên tục ~150ms/lần trong lúc xoay module bằng tay — giá trị dao động rõ theo thời gian (ví dụ 1 đoạn log: 359.4→0.0→0.7→359.8→7.2→18.8→356.2→8.8→0.6, không đứng yên 1 chỗ) — xác nhận module NDOF mode đang hoạt động thật, không phải giá trị rác/đứng yên.
+- **Cách đọc log trên Windows**: lệnh `screen`/`minicom` ở mục 6 chỉ áp dụng cho Jetson (Linux) — trên Windows dùng Python/`pyserial` mở `COM3` (CH340) đọc trực tiếp. Lưu ý: dòng `$IMU` chỉ gửi **1 lần lúc boot** (không lặp lại như `$ODO`) — nếu mở serial monitor SAU khi chip đã boot xong sẽ lỡ mất dòng này; phải mở listener TRƯỚC rồi mới trigger reset (`STM32_Programmer_CLI -c port=SWD -rst`) **trong cùng 1 script** (tách làm 2 lệnh Bash riêng bị lỡ mất dòng đầu do độ trễ giữa 2 lệnh — gộp reset vào cùng script Python bằng `subprocess`/thread mới bắt chính xác).
+- **⚠️ Bài học quy trình quan trọng nhất của cả 2 lần thử**: trước khi kết luận bất kỳ điều gì về "code sai" hay "phần cứng/module lỗi mode" dựa trên 1 lần test thất bại, **luôn tự hỏi lại checklist nguồn/dây cơ bản trước tiên** (đặc biệt nguồn cấp — lỗi rẻ nhất, dễ bỏ sót nhất, nhưng gây triệu chứng giống hệt lỗi phức tạp hơn) — đúng tinh thần các bài học "R_EN/L_EN tiếp xúc lỏng", "SERVO_ID sai" đã ghi trong file này. Việc làm lại bằng CubeMX GUI thật vẫn có giá trị (xác nhận logic Init đúng, loại trừ hẳn nghi ngờ code), nhưng nguyên nhân gốc của lần fail đầu tiên hóa ra đơn giản hơn nhiều.
+- **Đã xác nhận không ảnh hưởng hệ thống chính suốt cả 2 lần thử**: build sạch, nạp thành công, `$ODO` (motor/encoder/servo) vẫn chạy đều — I2C1 (PB8/PB9) hoàn toàn độc lập với TIM2/TIM3/TIM4/USART1/USART2 đang dùng thật.
+- **Quyết định (2026-08-19)**: **dừng ở mức test độc lập**, KHÔNG route vào `ackermann.c`/`jetson_comm.c` lúc này — ưu tiên các việc dang dở khác (verify PCB motor sau gia công, chạy SLAM thật, bắt đầu Nav2) trước khi mở rộng sang tích hợp IMU. Đã xác nhận an toàn để commit lên board đang chạy thật: khi module không cắm, `found=0` → không lệnh I2C nào chạy trong `while(1)`, `$ODO`/`$VEL`/watchdog giữ nguyên hành vi, chỉ cộng thêm ~200ms 1 lần lúc boot (trước khi Jetson kịp gửi `$VEL` đầu tiên).
+- **Việc tiếp theo (CHƯA làm, ưu tiên thấp hơn PCB/SLAM/Nav2)**: route heading vào `jetson_comm.c` (thêm vào giao thức `$ODO` hoặc tách topic riêng `$IMU`), rồi cấu hình `robot_localization` (EKF) bên ROS2 để fuse heading với `/odom` — hiện `CALC_Ackermann` mới chỉ dùng encoder differential-drive, chưa dùng IMU/servo cho hướng đi (xem gap kiến trúc đã ghi ở Giai đoạn 3).
+
+**🔧 Thiết kế PCB power (M+/M-) để thay dây rời — review xong, sẵn sàng gia công (2026-08-20):**
+
+Hướng giải quyết dứt điểm "giật cục" (mục trên): thay toàn bộ dây rời/đầu nối M+/M- (OUT1/OUT2 của DRV8871 → motor) bằng track PCB đồng liền, đúng bài học đã rút ra ("track PCB là khối đồng liền, điện trở cố định → không giật cục; dây rời + đầu nối lỏng mới là nguồn gốc giật chập chờn"). Đã thiết kế xong 1 board PCB 2 lớp (KiCad, `gerber/Stm32-*.gbr`) gộp: STM32F411 BlackPill (U1) + 2× DRV8871 (U2/U3) + terminal 3.5mm ra motor (J2/J11) + header encoder/động lực ra tận motor (J3/J4) + header servo UART1 đi board debug BusLinker qua dây jumper (J1) + header UART2 đi Jetson (J5).
+
+**Đối chiếu pin assignment (ưu tiên kiểm tra, dựa trên schematic ảnh user gửi) — khớp 100% với chuẩn đã xác nhận ở trên, không phát hiện lỗi:**
+- Motor trái: PA6→IN1, PA7→IN2 (U2 DRV8871) — đúng
+- Motor phải: PB0→IN1, PB1→IN2 (U3 DRV8871) — đúng
+- Encoder trái PA0/PA1, encoder phải PB6/PB7 — đúng, ra qua J3/J4
+- Servo UART1: PA9→RX board, PA10→TX board qua J1 (dây jumper, U4 chỉ là outline vị trí đặt module TTL Board, không có pad điện) — đấu chéo TX/RX đúng chuẩn
+- J1 pin 5V bỏ trống — đúng chủ đích (chân 5V header board debug là OUTPUT, không cấp nguồn ngoài)
+- UART2 Jetson: PA2/PA3 qua J5 — đúng (đã xác nhận, không phải encoder)
+- Domain công suất (J2/J11 terminal 3.5mm nối thẳng OUT1/OUT2) tách biệt hoàn toàn khỏi domain tín hiệu logic (J3/J4 encoder+5V) — thiết kế tốt
+
+**Đo đạc định lượng từ Gerber (parse trực tiếp track width/net qua script Python, RS-274X):**
+- Track `/M1+`, `/M1-`, `/M2+`, `/M2-` (B.Cu): **1.5mm**, đồng 1oz (0.035mm, xác nhận qua `Stm32-job.gbrjob` MaterialStackup) — không có via chuyển lớp trên đường công suất
+- Tính theo công thức IPC-2221 (external layer, k=0.048): 1.5mm/1oz chịu **~3.2A ở ΔT10°C, ~4.35A ở ΔT20°C, ~5.2A ở ΔT30°C** — so với dòng stall thực tế JGB37-520 ~2.3A (trường hợp xấu nhất) → margin ~40-125% tùy ngưỡng nhiệt chấp nhận. **Kết luận: 1.5mm đủ dùng, không cần tăng độ rộng.**
+- Lỗ khoan terminal 3.5mm (J2/J11) = 0.75mm (tool T3 trong `Stm32-PTH.drl`) — kích thước tiêu chuẩn cho terminal pitch 3.5mm, không phải điểm nghẽn
+- GND phủ toàn bộ B.Cu (pour, ~1323mm track length) — tốt cho return path, giảm nguy cơ ground bounce (bài học từ sự cố hỏng 2 board F446)
+
+**⚠️ Giới hạn của PCB này — không giải quyết được toàn bộ vấn đề giật cục:** PCB chỉ thay thế đoạn dây từ DRV8871 đến terminal J2/J11. Đoạn dây rời từ terminal J2/J11 ra tận motor thật (ngoài PCB, gắn trên khung xe) vẫn là dây rời — vẫn cần đảm bảo ≥18-20AWG, siết chặt terminal, không còn đoạn dupont/mối hàn yếu như đã ghi ở mục "giật cục" phía trên. Việc tiếp theo sau khi gia công + lắp board: test lại bằng script có `flush=True` để không mất log, xác nhận giật cục đã hết dứt điểm.
+
+**⚠️ Nguồn 5V qua pin header (pin 18/40 trên PCB) — an toàn NHƯNG có điều kiện bắt buộc (2026-08-20):**
+
+PCB thiết kế cấp 5V ngoài (từ hệ thống, không qua USB-C) vào 2 chân "5V" của STM32F411 BlackPill (pin 18 và pin 40 trên header, đúng vị trí U1 trong schematic). Đã xác nhận qua tài liệu chính thức board (stm32-base.org, WeAct schematic): đây là cách cấp nguồn **hợp lệ và chuẩn** — 2 chân 5V này đi vào regulator on-board **AP7343** (input 3.52-5.25V) tự chuyển xuống 3.3V nuôi MCU, không cần cắm USB-C để chạy.
+
+**⚠️ CẢNH BÁO BẮT BUỘC — không có bảo vệ phần cứng nào cả:** 2 chân 5V trên header **nối thẳng, không qua diode bảo vệ**, vào chính đường +5V của cổng USB-C trên board. Nguyên văn cảnh báo chính hãng: *"The +5V pins on this board are directly connected to the +5V pin of the USB connector. There is no protection in place. Do not power this board through USB and an external power supply at the same time."*
+
+- **Quy tắc vận hành bắt buộc**: KHÔNG BAO GIỜ cắm USB-C (nạp code/debug/xem log) đồng thời với việc đang cấp 5V ngoài qua pin 18/40 — 2 nguồn 5V khác nhau đấu đối đầu trực tiếp trên cùng 1 rail, nguy cơ hỏng cổng USB máy tính hoặc hỏng board. Đây gần như đúng kịch bản đã gây "F411 hỏng lần 3 khi nối Jetson" (2 đường nguồn độc lập cùng lúc, nghi ground loop) — cùng nguyên tắc "chỉ 1 đường nguồn tại 1 thời điểm" đã áp dụng cho F103 và kế hoạch MiniROS.
+- Khi cần nạp code/debug qua USB-C: **rút nguồn 5V ngoài trước**, chỉ dùng USB-C làm nguồn duy nhất lúc đó.
+- Khi chạy thật (không debug): **không cắm USB-C**, chỉ dùng nguồn 5V ngoài qua header.
+- Nếu bắt buộc cần cả 2 cùng lúc (vừa chạy vừa xem log serial): dùng cáp USB-C đã cắt dây VBUS (chỉ giữ D+/D-/GND).
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:

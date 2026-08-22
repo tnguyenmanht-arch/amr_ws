@@ -26,6 +26,7 @@
 #include "servo_buslinker.h"
 #include "jetson_comm.h"
 #include "ackermann.h"
+#include "bno055_test.h"  /* Test độc lập BNO055 qua I2C1 - xem CLAUDE.md mục 8 */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -44,6 +45,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
@@ -64,6 +67,12 @@ static float    current_steer = 0.0f; /* Góc lái hiện tại (độ) để g�
                                           * jitter mạng/CPU phía Jetson */
 static uint32_t last_vel_rx_ms       = 0; /* Mốc thời gian nhận $VEL hợp lệ gần nhất */
 static uint8_t  vel_watchdog_tripped = 0; /* Tránh gọi SetSpeed(0,0) lặp lại mỗi vòng lặp */
+
+/* ===== Test độc lập BNO055 (xem bno055_test.h) — CHỈ để xác nhận module
+ * sống trước khi tích hợp, chưa route vào ackermann.c/jetson_comm.c. ===== */
+static BNO055_TestResult bno_result;      /* Kết quả quét địa chỉ + CHIP_ID lúc init */
+static uint32_t          last_imu_ms = 0; /* Mốc thời gian đọc heading gần nhất */
+#define IMU_READ_INTERVAL_MS  150U        /* 1 lần/150ms, không ảnh hưởng watchdog 300ms */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,6 +83,7 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 static void on_cmd_vel(float linear, float angular);
 /* USER CODE END PFP */
@@ -117,11 +127,25 @@ int main(void)
   MX_TIM4_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   HAL_Delay(500);          // Đủ để các module boot, không trigger motor timeout
   DRV_Motor_Init();        // Không check return — tiếp tục dù config fail
   DRV_Servo_Init();        // Servo về vị trí trung tâm (lái thẳng)
   APP_Comm_Init(on_cmd_vel); // Bật UART2 nhận lệnh "$VEL" từ Jetson
+
+  /* ---- Test độc lập BNO055 (tạm thời, xem bno055_test.h) ---- */
+  bno_result = BNO055_Test_Init(&hi2c1);
+  {
+      char dbg[48];
+      int n = snprintf(dbg, sizeof(dbg), "$IMU,%u,0x%02X,0x%02X\n",
+                        (unsigned)bno_result.found,
+                        (unsigned)(bno_result.addr8 >> 1),
+                        (unsigned)bno_result.chip_id);
+      if (n > 0) {
+          APP_Comm_DebugPrint(dbg); /* Gửi qua USART2 -> đọc được qua CH340 */
+      }
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -153,6 +177,21 @@ int main(void)
 	      (now - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS) {
 		  DRV_Motor_SetSpeed(0, 0);
 		  vel_watchdog_tripped = 1U;
+	  }
+
+	  /* ---- Test độc lập BNO055: đọc heading tối đa 1 lần/150ms, đặt SAU
+	   * logic động cơ/servo, KHÔNG dùng HAL_Delay lớn -- không ảnh hưởng
+	   * watchdog $VEL 300ms. Chỉ đọc nếu Init đã báo found=1. ---- */
+	  if (bno_result.found && (now - last_imu_ms >= IMU_READ_INTERVAL_MS)) {
+		  last_imu_ms = now;
+		  float heading = 0.0f;
+		  if (BNO055_Test_ReadHeading(&hi2c1, bno_result.addr8, &heading) == HAL_OK) {
+			  char dbg[32];
+			  int n = snprintf(dbg, sizeof(dbg), "$IMUH,%.1f\n", (double)heading);
+			  if (n > 0) {
+				  APP_Comm_DebugPrint(dbg);
+			  }
+		  }
 	  }
   }
   /* USER CODE END 3 */
@@ -202,6 +241,40 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
