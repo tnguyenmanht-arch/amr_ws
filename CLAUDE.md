@@ -530,6 +530,17 @@ PCB thiết kế cấp 5V ngoài (từ hệ thống, không qua USB-C) vào 2 ch
 - Khi chạy thật (không debug): **không cắm USB-C**, chỉ dùng nguồn 5V ngoài qua header.
 - Nếu bắt buộc cần cả 2 cùng lúc (vừa chạy vừa xem log serial): dùng cáp USB-C đã cắt dây VBUS (chỉ giữ D+/D-/GND).
 
+**🔧 Cập nhật Gerber lần 2 — thêm header BNO055 vào PCB, sẵn sàng gia công (2026-08-23):**
+
+Sau khi test độc lập BNO055 thành công (mục trên), thêm 1 header 8 chân (footprint gốc của module GY-BNO055, drill 1.0mm, tool T5 trong `Stm32-PTH.drl`) vào PCB đang thiết kế — chỉ route đúng 4 chân đã quyết định dùng: **VIN→3.3V, GND, SCL\Rx→PB8, SDA\Tx→PB9** (RESET/INT/ADD/BOOT để trống, không route — quyết định chủ động: phạm vi đồ án không cần watchdog tự-reset qua GPIO, nếu I2C treo thì rút nguồn cắm lại tương đương reset cứng).
+
+**Đối chiếu Gerber cũ vs mới (parse lại qua script Python, so track/net):**
+- Track `/M1+`, `/M1-`, `/M2+`, `/M2-` (động lực motor): **không đổi**, vẫn 1.5mm, cùng tọa độ/chiều dài như lần review trước (7.6/19.1/30.4/41.7mm) — xác nhận lần cập nhật này chỉ thêm BNO055, không đụng phần công suất đã đạt yêu cầu.
+- `/PB8`, `/PB9` (I2C1 mới): mỗi net nối đúng 2 điểm (MCU ↔ header BNO055 tại x=133.26, y=-100.87/-103.41), track 0.3mm — hợp lý cho tín hiệu I2C 100kHz, không cần rộng hơn.
+- `/3V3`: dùng chung 1 rail nối tới nhiều điểm (header BNO055, header J3/J4 encoder, terminal VM/GND của DRV8871) — bình thường, đúng thiết kế rail chia sẻ sẵn có từ trước; tổng dòng tải 3.3V (BNO055 ~12.3mA + encoder vài mA) còn rất xa mức 300mA của regulator AP7343, không có rủi ro quá tải.
+
+**Kết luận: PCB đã sẵn sàng gia công** — đấu chân đúng theo quyết định đã chốt (4 chân BNO055, không RESET/INT/ADD/BOOT), track động lực giữ nguyên margin đã tính (IPC-2221, ~3.2-5.2A cho track 1.5mm/1oz so với stall 2.3A), không phát hiện thêm vấn đề nào ở lần review này.
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
