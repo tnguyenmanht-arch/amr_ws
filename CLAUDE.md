@@ -109,7 +109,8 @@ amr_ws/
 │   └── amr_stm32f103.ioc
 ├── reference/              ← Tài liệu Hiwonder MiniROS/JetAcker (đã .gitignore, KHÔNG push git — license personal use only)
 ├── docs/
-│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 + DRV8871 + board debug servo (pin table, star ground, phân phối nguồn) — cũng publish dạng artifact riêng
+│   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 + DRV8871 + board debug servo (pin table, star ground, phân phối nguồn)
+│       Artifact: https://claude.ai/code/artifact/6cf962e2-7683-49f2-8d3c-3ae49d44317f
 ├── CLAUDE.md
 └── README.md
 ```
