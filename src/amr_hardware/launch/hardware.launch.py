@@ -43,6 +43,16 @@ def generate_launch_description():
                 # CẦN đo lại xác nhận khi có không gian dài hơn (>2m) — số liệu
                 # hiện tại còn nhiễu ở quãng ngắn (<1m).
                 'steering_trim_angular_z': -0.06,
+                # Dấu encoder — ĐO THỰC NGHIỆM trên Jetson (2026-09-05) với
+                # wiring DRV8871 hiện tại: gửi lệnh tiến, quan sát $ODO thấy
+                # enc_l chạy ÂM (0 -> -4543) còn enc_r chạy DƯƠNG (0 -> +4518),
+                # độ lớn khớp nhau -> bánh trái phải nhân -1 để "tick tăng =
+                # lăn tiến". Nếu KHÔNG bù, d=(dl+dr)/2 triệt tiêu về ~0 và
+                # /odom đứng yên dù xe chạy thật.
+                # ⚠️ ĐO LẠI sau MỖI lần đấu lại dây motor/encoder — quy ước dấu
+                # không cố định qua các lần rewire (bài học lặp lại nhiều lần).
+                'left_encoder_sign':  -1.0,
+                'right_encoder_sign':  1.0,
             }],
         ),
     ])

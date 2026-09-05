@@ -30,6 +30,18 @@ public:
         // canh giữa tuyệt đối ở steer_deg=0 nên xe đi thẳng bị lệch hướng;
         // sửa ở đây (phía Jetson) để không cần build lại firmware STM32.
         this->declare_parameter("steering_trim_angular_z", 0.0);
+        // Dấu encoder (+1.0 hoặc -1.0) — nhân vào tick thô trước khi tính
+        // odometry, để "tick tăng" luôn nghĩa là "bánh đó lăn tiến".
+        // Firmware $ODO gửi tick THÔ đúng như timer đếm được, KHÔNG bù dấu
+        // (firmware chỉ bù nội bộ cho vòng PID qua LEFT_ENCODER_SIGN).
+        // Với wiring DRV8871 hiện tại (đo thực nghiệm 2026-09-05 trên Jetson:
+        // lệnh tiến -> enc_l chạy ÂM, enc_r chạy DƯƠNG, độ lớn khớp nhau) thì
+        // bánh trái cần -1.0. Nếu KHÔNG bù, d=(dl+dr)/2 triệt tiêu về ~0 và
+        // /odom đứng yên dù xe chạy thật.
+        // ⚠️ Quy ước dấu đổi theo mỗi lần đấu lại dây — luôn đo lại bằng cách
+        // gửi lệnh tiến và xem dấu enc_l/enc_r trong $ODO, đừng giả định.
+        this->declare_parameter("left_encoder_sign",  -1.0);
+        this->declare_parameter("right_encoder_sign",  1.0);
 
         port_         = this->get_parameter("serial_port").as_string();
         baud_         = this->get_parameter("baud_rate").as_int();
@@ -40,6 +52,8 @@ public:
         ticks_per_rev_ = ppr * gear;
         double hz     = this->get_parameter("publish_rate_hz").as_double();
         steering_trim_angular_z_ = this->get_parameter("steering_trim_angular_z").as_double();
+        left_encoder_sign_  = this->get_parameter("left_encoder_sign").as_double();
+        right_encoder_sign_ = this->get_parameter("right_encoder_sign").as_double();
 
         if (!driver_.open(port_, baud_)) {
             RCLCPP_ERROR(this->get_logger(),
@@ -86,13 +100,18 @@ private:
         steer_msg.data = od.steer_deg;  // độ, có dấu — khớp giá trị STM32 gửi qua $ODO
         steering_angle_pub_->publish(steer_msg);
 
-        // Thanh ghi ENCODER_TOTAL trên mạch Hiwonder KHÔNG tự reset khi node
-        // khởi động lại -> lần đọc đầu tiên có thể mang giá trị tick tích lũy
-        // từ những lần chạy trước. Lấy giá trị đọc đầu tiên làm baseline thay
-        // vì giả định 0, tránh nhảy vọt vị trí giả tạo ngay khi node khởi động.
+        // Bù dấu encoder NGAY khi đọc — từ dòng này trở xuống, quy ước thống
+        // nhất là "tick tăng == bánh đó lăn tiến", bất kể dây đấu thế nào.
+        const double left_ticks  = od.left_ticks  * left_encoder_sign_;
+        const double right_ticks = od.right_ticks * right_encoder_sign_;
+
+        // Bộ đếm tick trên STM32 KHÔNG tự reset khi node ROS khởi động lại
+        // -> lần đọc đầu tiên có thể mang giá trị tích lũy từ những lần chạy
+        // trước. Lấy giá trị đọc đầu tiên làm baseline thay vì giả định 0,
+        // tránh nhảy vọt vị trí giả tạo ngay khi node khởi động.
         if (!got_first_odom_) {
-            prev_left_      = od.left_ticks;
-            prev_right_     = od.right_ticks;
+            prev_left_      = left_ticks;
+            prev_right_     = right_ticks;
             got_first_odom_ = true;
             last_time_      = this->now();
             return;
@@ -105,10 +124,10 @@ private:
         if (dt <= 0.0 || dt > 1.0) return;
 
         double m_per_tick = (2.0 * M_PI * wheel_radius_) / ticks_per_rev_;
-        double dl = (od.left_ticks  - prev_left_)  * m_per_tick;
-        double dr = (od.right_ticks - prev_right_) * m_per_tick;
-        prev_left_  = od.left_ticks;
-        prev_right_ = od.right_ticks;
+        double dl = (left_ticks  - prev_left_)  * m_per_tick;
+        double dr = (right_ticks - prev_right_) * m_per_tick;
+        prev_left_  = left_ticks;
+        prev_right_ = right_ticks;
 
         double d      = (dl + dr) / 2.0;
         double dtheta = (dr - dl) / wheel_base_;
@@ -155,9 +174,13 @@ private:
     double  wheel_base_    = 0.21;
     double  ticks_per_rev_ = 990.0;
     double  steering_trim_angular_z_ = 0.0;
+    double  left_encoder_sign_  = -1.0;
+    double  right_encoder_sign_ =  1.0;
 
     double  x_ = 0.0, y_ = 0.0, theta_ = 0.0;
-    int32_t prev_left_ = 0, prev_right_ = 0;
+    // Tick đã bù dấu (double, giữ nguyên giá trị nguyên của tick) — không
+    // dùng int32_t nữa vì tick thô được nhân với hệ số dấu kiểu double.
+    double  prev_left_ = 0.0, prev_right_ = 0.0;
     bool    got_first_odom_ = false;
     rclcpp::Time last_time_;
 
