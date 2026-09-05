@@ -587,8 +587,118 @@ DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự P
 - **Trim quan trọng hơn hệ số góc**: Nav2/lane-following tự bù được sai số hệ số, nhưng KHÔNG bù được lệch tâm (sai số hằng số kéo xe về 1 phía).
 - ⚠️ Hiện có **2 chỗ trim cùng lúc**: `ACK_STEER_TRIM_DEG=1.5°` (firmware) và `steering_trim_angular_z=-0.06` (ROS, `hardware.launch.py`) — cộng dồn/triệt tiêu lẫn nhau rất khó lần. **Nên bỏ 1 chỗ (giữ firmware) TRƯỚC khi hiệu chuẩn lại.**
 
+---
+
+## 🔴🔴🔴 VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO (ưu tiên số 1, 2026-09-05)
+
+> **Đọc kỹ mục này trước khi làm bất cứ việc gì khác trên firmware.** Đây là kết quả một buổi đo đạc dài trên Jetson với xe thật; toàn bộ chẩn đoán đã xong, chỉ còn phần sửa firmware phải làm trên Windows.
+
+### Tóm tắt 1 câu
+
+`CALC_Ackermann()` đang cho **2 bánh sau chạy cùng tốc độ khi cua**, PID lại ép chặt setpoint đó → xe **understeer nặng (cua rộng gấp ~2 lần hình học)** và `/odom` **mù hoàn toàn về hướng** → **SLAM sẽ hỏng nếu chạy bây giờ**.
+
+### Triệu chứng đo được (Jetson, xe thật, CP2102 `/dev/ttyUSB0`)
+
+| Test | Lệnh | `steer_deg` firmware báo | Quỹ đạo THẬT đo được | Góc lái suy ngược |
+|---|---|---|---|---|
+| Đi thẳng | `angular.z=0` | −4.8° | thẳng (lệch 6-7mm/1.09m) | ~0° |
+| Cua nhỏ | `angular.z=0.3` | +4.2° | chỉ xoay **5°** sau 1.06m | ~1.0° |
+| Hết cỡ | `angular.z=1.0` | +25.2° | vòng tròn **đường kính 1.4-1.5m** | ~16.2° |
+
+Ở test hết cỡ: hình học Ackermann thuần tuý cho `R = L/tan(30°) = 0.364m` (đường kính 0.73m). Thực tế đo **1.45m — rộng gấp 2 lần**.
+
+### Nguyên nhân (đã xác định, không phải suy đoán)
+
+Khi cua bán kính `R`, 2 bánh sau **buộc phải** quay khác tốc độ vì chúng đi trên 2 cung tròn bán kính khác nhau (`R ± D/2`):
+
+| Góc lái | R (m) | Chênh tốc độ 2 bánh sau BẮT BUỘC |
+|---|---|---|
+| 5° | 2.400 | 9% |
+| 10° | 1.191 | 20% |
+| 16.2° | 0.723 | **35%** ← xe thực tế dừng ở đây |
+| 30° | 0.364 | **85%** ← firmware ra lệnh, bất khả thi |
+
+Firmware hiện đặt `*speed_l = *speed_r = spd`, **và PID (thêm 2026-09-05) còn ép chặt** mỗi bánh bám đúng setpoint. Chênh 85% là không thể → lốp phải **trượt ngang** → sinh moment chống lại việc quay đầu xe → xe tự giãn ra bán kính lớn hơn cho tới khi mức chênh cần thiết đủ nhỏ để lốp trượt được (dừng ở 35%).
+
+**⚠️ PID làm vấn đề TỆ ĐI.** Trước khi có PID, chạy hở, bánh bị cản sẽ tự chậm lại → tạo một phần vi sai "miễn phí". PID chủ động triệt tiêu đúng cái vi sai tự nhiên đó. Đây là **hệ quả phụ ngoài ý muốn của chính thay đổi PID hôm nay** — không có nghĩa PID sai, chỉ là nó phơi bày một thiếu sót vốn có.
+
+**Giải thích được cả tính phi tuyến**: lực cản do trượt lốp bị giới hạn bởi ma sát nên gần như *không đổi*, còn lực lái sinh ra thì *tỉ lệ với góc lái*. Nên góc nhỏ → lực cản lấn át → understeer nặng (9×); góc lớn → lực lái thắng → understeer nhẹ hơn (2×). Khớp đúng cả 3 điểm đo.
+
+> ❌ **Giả thuyết đã bị bác bỏ, đừng đi lại đường này**: ban đầu nghi "rơ cơ khí 7.6° (backlash)" và fit được mô hình khớp cả 3 điểm rất đẹp. Nhưng mô hình đó cần **2 tham số tự do bịa thêm** để khớp 3 điểm — khớp đẹp không có nghĩa là đúng. Cơ chế khoá vi sai giải thích mọi thứ chỉ bằng **1 cơ chế vật lý có thật**, và đã kiểm chứng bằng test tĩnh: bánh trước **đi mượt theo từng bước lệnh, về đúng vị trí cũ, không có rơ đáng kể**.
+
+### CẦN SỬA — `amr_stm32f411/Core/Src/ackermann.c`
+
+Chỗ hiện tại:
+```c
+/* Mô hình đơn giản hóa: 2 bánh sau cùng tốc độ, chưa bù vi sai khi cua */
+int8_t spd = (int8_t)speed_f;
+*speed_l = spd;
+*speed_r = spd;
+```
+
+Thay bằng công thức Ackermann chuẩn (nguồn: `reference/2 Motion Control Course/1. Kinematics Analysis.pdf`, Hiwonder — khung gầm của họ wheelbase 0.213 / track 0.222 / bánh Ø0.101, gần như trùng xe ta 0.21/0.217/0.10 nên áp dụng được):
+
+```
+V_L = V · (1 − D·tan(θ) / 2H)
+V_R = V · (1 + D·tan(θ) / 2H)
+```
+
+với `D` = track width = **0.217m**, `H` = wheelbase = **0.21m**, `θ` = góc lái (rad).
+
+Lưu ý khi cài đặt:
+- `θ` phải là góc lái đã tính ở bước 2 của `CALC_Ackermann` (đã cộng trim, đã clamp), **đổi sang radian** trước khi `tanf()`.
+- Sau khi nhân hệ số, `speed_l`/`speed_r` vẫn phải **clamp về −100..100** (bánh ngoài có thể vượt 100 khi `V` đã gần max — khi đó nên **hạ tỉ lệ CẢ HAI bánh** giữ đúng tỉ số, thay vì clamp cụt bánh ngoài làm sai vi sai).
+- **Dấu**: quy ước đã xác nhận thực nghiệm là `steer_deg` **dương = rẽ TRÁI**. Khi rẽ trái, bánh **phải** là bánh ngoài → phải quay **nhanh hơn**. Kiểm tra lại dấu bằng thực nghiệm sau khi nạp, đừng tin suy luận trên giấy (bài học lặp lại nhiều lần trong dự án này).
+- Việc đảo dấu bánh phải trong `DRV_Motor_SetSpeed()` là chuyện **độc lập**, giữ nguyên, không đụng tới.
+
+### Lỗi firmware THỨ HAI phát hiện cùng lúc — `K_ANGULAR_TO_DEG` bỏ quên vận tốc
+
+`ackermann.c` hiện tính:
+```c
+float angle = angular_z * K_ANGULAR_TO_DEG + ACK_STEER_TRIM_DEG;   /* K = 30.0f */
+```
+
+Công thức đúng (cùng tài liệu Hiwonder, hàm `set_velocity`):
+```python
+theta = atan(wheelbase * angular_speed / linear_speed)
+```
+
+**Thiếu hẳn `linear_speed`.** Về vật lý: cùng một `angular_z`, xe chạy chậm phải đánh lái **nhiều hơn** mới đạt được tốc độ quay đó. Công thức hiện tại cho ra cùng một góc bất kể tốc độ, nên chỉ đúng tại **một tốc độ duy nhất**:
+
+| v (m/s) | Góc đúng (ω=0.3) | Firmware ta tính | Tỉ lệ |
+|---|---|---|---|
+| 0.15 | 22.8° | 9.0° | 2.53 |
+| 0.20 | 17.5° | 9.0° | 1.94 |
+| 0.30 | 11.9° | 9.0° | 1.32 |
+| **0.40** | **9.0°** | **9.0°** | **1.00** ✓ |
+| 0.50 | 7.2° | 9.0° | 0.80 |
+
+→ `K=30` chỉ đúng tại **v ≈ 0.40 m/s**. Ở tốc độ indoor khuyến nghị 0.25-0.3 m/s, xe cua chậm hơn Nav2 yêu cầu **1.3-1.6 lần**. Nav2 sẽ liên tục "đòi" nhiều hơn mức nhận được.
+
+Cần xử lý `linear_x ≈ 0` (chia 0) — Hiwonder dùng ngưỡng `abs(linear_speed) >= 1e-8`, và họ **từ chối lệnh** nếu `|steering_angle| > 37°`. Ta clamp ở 30° (`ACK_MAX_STEER_DEG`), giữ nguyên.
+
+### Sau khi nạp firmware mới — thứ tự verify
+
+1. **Test tĩnh trước** (bánh nhấc khỏi đất): gửi `$VEL,0.2,0.5`, xác nhận qua `$ODO` rằng 2 encoder **tăng khác tốc độ**, và **bánh ngoài (phải, khi rẽ trái) nhanh hơn**. Nếu ngược → đảo dấu số hạng `D·tanθ/2H`.
+2. **Test vòng tròn** (bánh chạm đất, `angular.z=1.0`, `linear.x=0.2`, 12s): kỳ vọng đường kính giảm từ **1.45m xuống gần 0.73m**. Đây là phép đo phân xử — nếu đường kính không giảm rõ rệt thì giả thuyết sai, quay lại chẩn đoán.
+3. **Hiệu chuẩn lại `steering_trim_angular_z`** (ROS) — giá trị hiện tại `−0.206` đo trong điều kiện xe đang understeer, gần như chắc chắn sẽ đổi.
+4. Chỉ sau khi 1-3 xong mới tính tới SLAM.
+
+### Phía ROS đã chuẩn bị sẵn, KHÔNG cần sửa gì thêm
+
+`serial_driver_node.cpp` đã để công thức `dtheta = (dr − dl) / track_width` với `track_width=0.217` (tham số mới, thay cho việc dùng nhầm `wheel_base=0.21` trước đây). Công thức này **hiện cho ra ~0 vì firmware chưa xuất vi sai** — nhưng sẽ **tự nhiên đúng ngay** khi firmware mới lên, không cần mô hình xe đạp, không cần hằng số hiệu chuẩn nào.
+
+> Chiều 2026-09-05 đã thử vá bằng **mô hình xe đạp** lấy `steer_deg` từ `$ODO` (`dtheta = d·tan(δ)/L` + tham số `steering_offset_deg=4.9`). **ĐÃ HOÀN NGUYÊN** — nó bịa ra góc quay gấp ~2 lần thực tế (test vòng tròn: `/odom` báo xoay 360°, thực tế xe mới đi được ~190° của một vòng tròn to gấp đôi). Lý do thất bại: `steer_deg` là **góc LỆNH**, mà do understeer thì góc lệnh không phản ánh quỹ đạo THẬT. Vá ở ROS là vá sai chỗ — gốc rễ nằm ở firmware.
+
+### Vẫn nên làm sau đó: BNO055 cho heading
+
+Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp** qua encoder và vẫn nhiễm sai số trượt lốp. **BNO055 đã test thành công 2026-08-19** (địa chỉ 0x29, heading đọc tốt) nhưng chưa dùng vào việc gì — nó **đo trực tiếp** hướng xe. Route heading vào `$ODO` rồi fuse bằng `robot_localization` EKF là giải pháp bền vững nhất. Ưu tiên sau khi vi sai chạy đúng.
+
+---
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
-- [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
+- [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive, tham số khớp xe thật
+- [x] **Hiệu chuẩn lại toàn bộ odometry trên phần cứng hiện tại (2026-09-05, F411#4+DRV8871+PID)** — xem mục chi tiết bên dưới. Giá trị chốt: `wheel_radius=0.049`, `encoder_ppr=44.0` × `gear_ratio=90` → `ticks_per_rev=3960`, `track_width=0.217`, `left_encoder_sign=-1.0`, `steering_trim_angular_z=-0.206`
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
   + `sendCmdVel`: build `"$VEL,%.2f,%.2f\n"` rồi `write()`
   + `readOdom`: gom byte tới `'\n'`, `sscanf("$ODO,%ld,%ld,%f")`, bỏ state machine header/CRC nhị phân cũ
@@ -616,7 +726,27 @@ DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự P
 
 **Hiệu chuẩn servo lái (bù lệch tâm) — thực nghiệm (2026-07-03)**: xe lệch trái ~6.3cm/m khi `angular.z=0`. Thêm tham số `steering_trim_angular_z` (rad/s, cộng vào `angular.z` trước khi gửi `$VEL`) trong `serial_driver_node.cpp` — sửa ở phía Jetson, KHÔNG cần build lại firmware STM32. Dò bằng thực nghiệm nhiều điểm (`0` → lệch trái 6.3%/m; `+0.08` → lệch trái nhiều hơn; `-0.15` → lệch phải ~3%/m; `-0.10` → lệch phải ~4.4-4.7%/m, nhất quán ở cả quãng trung bình 52.8cm và quãng dài 146.5cm). Nội suy từ baseline + điểm đo dài đáng tin cậy nhất (146.5cm) → **`steering_trim_angular_z = -0.06`** (đã cập nhật `hardware.launch.py`). ⚠️ Chưa verify trực tiếp giá trị `-0.06` (hết không gian test 3m) — cần chạy xác nhận lại ở phiên sau, lý tưởng là quãng đường >2m để giảm nhiễu đo đạc (số liệu ở quãng <1m dao động khá nhiều, ví dụ cùng `trim=-0.10` cho 1.5%, 4.7%, 4.4% tùy quãng đo).
 
-**Việc tiếp theo:** Verify trực tiếp `steering_trim_angular_z=-0.06` khi có không gian dài hơn (>2m). Cân nhắc vá odometry để phản ánh góc lái servo khi tính hướng đi (hiện chỉ đúng khi đi thẳng). Cân nhắc bù vi sai tốc độ trái/phải khi vào cua (hiện `CALC_Ackermann` trong firmware dùng tốc độ 2 bánh sau bằng nhau — ghi rõ trong `ackermann.h` là mô hình đơn giản hóa).
+**✅ HIỆU CHUẨN LẠI TOÀN BỘ ODOMETRY (2026-09-05, trên Jetson với F411#4 + DRV8871 + PID, CP2102 `/dev/ttyUSB0`)** — thay thế mọi số liệu hiệu chuẩn phía trên (đo trên phần cứng cũ, đã lỗi thời).
+
+**Bug 1 — `/odom` đứng yên dù xe chạy thật:** firmware `$ODO` gửi tick **THÔ** đúng như timer đếm, KHÔNG bù dấu (firmware chỉ bù nội bộ cho vòng PID qua `LEFT_ENCODER_SIGN` trong `motor_driver.c`). Với wiring DRV8871 hiện tại, lệnh tiến làm `enc_l` chạy **ÂM** (0→−4543) còn `enc_r` chạy **DƯƠNG** (0→+4518), độ lớn khớp nhau → `d=(dl+dr)/2` **triệt tiêu về ~0**. Fix: thêm 2 tham số ROS `left_encoder_sign=-1.0` / `right_encoder_sign=+1.0` (không hardcode, vì quy ước dấu đổi mỗi lần đấu lại dây — bài học lặp lại nhiều lần). Commit `42fbedb`.
+
+**Bug 2 — hai lỗi sai bù trừ nhau trong calibration cũ:** `wheel_radius=0.10` thực ra là **ĐƯỜNG KÍNH** bị ghi nhầm thành bán kính (bánh thật Ø100mm → bán kính 0.05m). `encoder_ppr=87.61` khi đó phải **gấp đôi** giá trị thật để bù lại, nên `/odom` vẫn ra đúng quãng đường — chỉ **tích** `2πr/ticks_per_rev` là được hiệu chuẩn thật, từng hằng số riêng đều sai. Tham số hoá lại tách bạch:
+- `encoder_ppr=44.0` × `gear_ratio=90` → **`ticks_per_rev=3960`**: SỐ NGUYÊN CHÍNH XÁC suy từ phần cứng (11 PPR datasheet × **4 cạnh quadrature** do TIM chạy Encoder Mode TI12 × gear 90:1). Không phải số dò.
+- **`wheel_radius=0.049`**: bán kính **LĂN hiệu dụng** (nhỏ hơn danh nghĩa 50mm do lốp nén dưới tải). Đây mới là đại lượng cần hiệu chuẩn thực nghiệm.
+
+**Cách đo (dựa trên tick THÔ, không phụ thuộc tham số nào đang sai):** chạy thẳng 8s @0.2m/s, đọc delta tick 2 bánh, đo quãng đường bằng thước. Kết quả: delta tick trung bình **21864** (lệch trái/phải chỉ **0.58%**), quãng đường **~1.70m** → `ticks_per_rev` suy ra nằm trong **3970..4113**, **bao trọn giá trị lý thuyết 3960** → xác nhận encoder hoàn toàn bình thường.
+
+**Kiểm chứng ĐỘC LẬP (quan trọng — tránh suy luận vòng tròn):** hiệu chuẩn ở quãng 8s, rồi kiểm chứng ở quãng **KHÁC** (5s, không dùng để hiệu chuẩn) → `/odom` báo **1.079m** vs đo thước **1.08m**, khớp **<0.1%**.
+
+> ⚠️ **Bài học phương pháp:** trong phiên này đã một lần kết luận sai rằng "calibration cũ vẫn tốt" bằng cách so `MAX_TICKS_PER_INTERVAL=69 × ticks_per_rev` ra 0.55 m/s "khớp với 0.55 m/s đo được". Nhưng con số 0.55 trong CLAUDE.md **chính là được tính ra từ đúng 2 hằng số đó** — tức lấy một số xác nhận chính nó. **Kiểm chứng chỉ có giá trị khi dùng dữ liệu ĐỘC LẬP với dữ liệu đã dùng để hiệu chuẩn.**
+
+**Hiệu chuẩn lại trim lái: `steering_trim_angular_z` −0.06 → −0.206.** Giá trị cũ từ 2026-07-03 đã lỗi thời (sau đó đổi servo sang ID=1 + đấu lại cơ khí). Cách đo: chạy thẳng 1.08m, đo lệch ngang 21cm → coi quỹ đạo là cung tròn (`s=Rθ`, `y=R(1−cos θ)`) → θ=22.57°, R=2.741m → góc lái thật `atan(L/R)=+4.38°` trong khi lệnh chỉ −0.30° → **lệch tâm cơ khí ~4.7-4.9°**. Giải ngược qua công thức firmware: `angular_trimmed=(−4.68−1.5)/30=−0.206`. **Kết quả: lệch ngang từ 21cm giảm còn 6-7mm trên 1.09m (0.6%).**
+
+⚠️ Trim này đo trong điều kiện xe **đang understeer do khoá vi sai** — sẽ phải đo lại sau khi firmware có vi sai.
+
+**Lưu ý khi đo lệch ngang — ĐO Ở TÂM TRỤC SAU**, không phải bánh trước: odometry bám trục sau, và `δ=atan(L/R)` cũng lấy R của trục sau. Đo ở trục trước lẫn cả chuyển động lái vào, chênh `L·sin θ` (tới 8cm khi θ=22°). Cũng phải chú ý **mốc tham chiếu**: mặt ngoài bánh trước cách mặt bên khung xe **5cm** trên xe này — đo 2 mốc khác nhau rồi so trực tiếp sẽ ra kết luận sai.
+
+**Việc tiếp theo:** xem mục **"VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO"** ở Giai đoạn 2 — phải sửa vi sai bánh sau trong firmware trước, mọi hiệu chuẩn còn lại (trim, `K_ANGULAR_TO_DEG`) đều phải làm LẠI sau đó. **Chưa chạy SLAM trước khi xong việc này.**
 
 ### 🔧 Giai đoạn 6 — Lane Detection: BẮT ĐẦU TRIỂN KHAI (2026-07-03)
 - **Camera**: IMX-219 chưa về hàng → tạm dùng **webcam USB** (`/dev/video0`, encoding `yuv422_yuy2`). Cài `ros-humble-usb-cam`, thêm `src/amr_perception/launch/camera.launch.py` (node `usb_cam_node_exe`, remap `/image_raw` → `/camera/image_raw`, 640×480 @ 30fps). Vị trí lắp thật đã cập nhật vào `camera.xacro` (xem Giai đoạn 3).
@@ -644,6 +774,7 @@ DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự P
 - [x] `amr_slam/launch/slam.launch.py` — 4 node: serial_driver, sllidar, slam_toolbox, static_tf
   - LiDAR offset tạm thời: `base_link → laser_frame` x=0.15m, z=0.10m (cần đo lại sau khi lắp)
 - [x] `colcon build --packages-select amr_slam` — 0 errors
+- [ ] ⛔ **CHƯA CHẠY ĐƯỢC** — `/odom` hiện MÙ VỀ HƯỚNG (xoay thật 22.6°, odom báo ~0) do firmware khoá vi sai 2 bánh sau. LiDAR sẽ thấy xe xoay trong khi odom bảo đi thẳng → scan matching mâu thuẫn → bản đồ hỏng (tường nhân đôi). **Phải sửa firmware trước** — xem "VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO" ở Giai đoạn 2.
 - [ ] Chạy thực tế: `ros2 launch amr_slam slam.launch.py` và kiểm tra `/map`
 - [ ] Lưu bản đồ `.yaml` + `.pgm` (`ros2 run nav2_map_server map_saver_cli`)
 
@@ -663,7 +794,7 @@ DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự P
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
-- Kích thước xe: L=304mm, W=268mm, H=84mm, wheelbase=210mm, track=217mm, r_wheel=100mm
+- Kích thước xe: L=304mm, W=268mm, H=84mm, wheelbase=210mm, track=217mm, **bánh xe ĐƯỜNG KÍNH 100mm → BÁN KÍNH 50mm** (sửa 2026-09-05: dòng cũ ghi "r_wheel=100mm" là SAI — đó là đường kính. Sai này đã lan vào `hardware.launch.py` dưới dạng `wheel_radius=0.10` suốt nhiều tháng; dấu hiệu lẽ ra phải nhận ra sớm: cả xe chỉ cao 84mm, bánh bán kính 100mm là vô lý)
 
 > BusLinker protocol LEN=7, MOTOR_TYPE register `0x14=3`, motor channel CH1/CH2 — các mục này thuộc kiến trúc I2C/Hiwonder cũ, không còn áp dụng nhưng giữ lại trong lịch sử "I2C Bit-bang" (Giai đoạn 2) để tham khảo nếu quay lại driver kiểu register-based sau này.
 

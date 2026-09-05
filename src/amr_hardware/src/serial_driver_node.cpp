@@ -42,6 +42,11 @@ public:
         // gửi lệnh tiến và xem dấu enc_l/enc_r trong $ODO, đừng giả định.
         this->declare_parameter("left_encoder_sign",  -1.0);
         this->declare_parameter("right_encoder_sign",  1.0);
+        // Khoảng cách 2 bánh SAU trái-phải (m) — mẫu số đúng của công thức
+        // differential-drive tính hướng. Trước 2026-09-05 code dùng nhầm
+        // wheel_base (0.21, khoảng cách TRƯỚC-SAU) vào chỗ này; 2 số tình cờ
+        // gần nhau (0.21 vs 0.217) nên sai lệch ~3% không ai để ý.
+        this->declare_parameter("track_width", 0.217);
 
         port_         = this->get_parameter("serial_port").as_string();
         baud_         = this->get_parameter("baud_rate").as_int();
@@ -54,6 +59,7 @@ public:
         steering_trim_angular_z_ = this->get_parameter("steering_trim_angular_z").as_double();
         left_encoder_sign_  = this->get_parameter("left_encoder_sign").as_double();
         right_encoder_sign_ = this->get_parameter("right_encoder_sign").as_double();
+        track_width_ = this->get_parameter("track_width").as_double();
 
         if (!driver_.open(port_, baud_)) {
             RCLCPP_ERROR(this->get_logger(),
@@ -129,8 +135,31 @@ private:
         prev_left_  = left_ticks;
         prev_right_ = right_ticks;
 
-        double d      = (dl + dr) / 2.0;
-        double dtheta = (dr - dl) / wheel_base_;
+        double d = (dl + dr) / 2.0;
+
+        // ---- Hướng đi: differential-drive từ chênh lệch 2 bánh sau ----
+        // ⚠️⚠️ CÔNG THỨC NÀY HIỆN CHƯA CHẠY ĐÚNG — và lỗi nằm ở FIRMWARE,
+        // không phải ở đây. Xem CLAUDE.md mục "Understeer do khoá vi sai".
+        //
+        // Firmware CALC_Ackermann đang đặt `*speed_l = *speed_r = spd` (2 bánh
+        // sau CÙNG tốc độ bất kể góc lái), và PID còn ép chặt mỗi bánh bám
+        // đúng setpoint đó -> (dr-dl) luôn ~0 -> dtheta luôn ~0, /odom MÙ VỀ
+        // HƯỚNG. Đo 2026-09-05: xe quay thật 22.6 deg, /odom báo ~0.
+        //
+        // KHÔNG vá ở đây. Cách sửa đúng là cho firmware xuất vi sai thật theo
+        // công thức Ackermann (tài liệu Hiwonder "1. Kinematics Analysis"):
+        //     V_L = V(1 - D*tan(theta)/2H)    V_R = V(1 + D*tan(theta)/2H)
+        // Khi đó (dr-dl) mang thông tin hướng thật và công thức dưới đây tự
+        // nhiên đúng, không cần mô hình xe đạp hay hằng số hiệu chuẩn nào.
+        //
+        // (Đã từng thử vá bằng mô hình xe đạp lấy steer_deg từ $ODO — HOÀN
+        //  NGUYÊN 2026-09-05 vì nó bịa ra góc quay gấp ~2 lần thực tế: xe
+        //  understeer nặng do chính việc khoá cứng vi sai, nên góc lái LỆNH
+        //  không phản ánh quỹ đạo THẬT. Chi tiết đầy đủ trong CLAUDE.md.)
+        //
+        // Mẫu số là TRACK WIDTH (khoảng cách trái-phải), không phải wheel_base
+        // (trước-sau) như code trước 2026-09-05 dùng nhầm.
+        double dtheta = (dr - dl) / track_width_;
 
         x_     += d * std::cos(theta_ + dtheta / 2.0);
         y_     += d * std::sin(theta_ + dtheta / 2.0);
@@ -176,6 +205,7 @@ private:
     double  steering_trim_angular_z_ = 0.0;
     double  left_encoder_sign_  = -1.0;
     double  right_encoder_sign_ =  1.0;
+    double  track_width_   = 0.217;
 
     double  x_ = 0.0, y_ = 0.0, theta_ = 0.0;
     // Tick đã bù dấu (double, giữ nguyên giá trị nguyên của tick) — không

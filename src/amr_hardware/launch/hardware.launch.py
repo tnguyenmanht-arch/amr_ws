@@ -96,6 +96,14 @@ def generate_launch_description():
                 # không cố định qua các lần rewire (bài học lặp lại nhiều lần).
                 'left_encoder_sign':  -1.0,
                 'right_encoder_sign':  1.0,
+                # Khoảng cách 2 bánh SAU trái-phải — mẫu số ĐÚNG của công thức
+                # differential-drive tính hướng. Code trước 2026-09-05 dùng
+                # nhầm wheel_base (0.21, trước-sau) vào chỗ này; 2 số gần nhau
+                # (0.21 vs 0.217) nên sai ~3% không ai để ý.
+                # ⚠️ Công thức hướng hiện VẪN CHƯA chạy đúng vì firmware khoá
+                # cứng vi sai 2 bánh sau — xem CLAUDE.md "Understeer do khoá
+                # vi sai". Sửa ở firmware, KHÔNG vá ở ROS.
+                'track_width': 0.217,
             }],
         ),
     ])
