@@ -26,12 +26,26 @@ extern "C" {
 HAL_StatusTypeDef DRV_Motor_Init(void);
 
 /**
- * @brief  Đặt tốc độ cho 2 bánh (điều khiển RPWM/LPWM của BTS7960).
- * @param  left   Tốc độ bánh trái:  -100 (lùi full) .. 0 .. 100 (tiến full)
- * @param  right  Tốc độ bánh phải: -100 (lùi full) .. 0 .. 100 (tiến full)
+ * @brief  Đặt TỐC ĐỘ MỤC TIÊU cho 2 bánh (không phải duty trực tiếp nữa).
+ * @param  left   Tốc độ mục tiêu bánh trái:  -100 (lùi full) .. 0 .. 100 (tiến full)
+ * @param  right  Tốc độ mục tiêu bánh phải: -100 (lùi full) .. 0 .. 100 (tiến full)
+ * @note   Từ 2026-09: closed-loop qua PID (xem motor_pid.h) — hàm này chỉ LƯU
+ *         mục tiêu, PWM thực tế được DRV_Motor_UpdatePID() tính lại mỗi chu kỳ
+ *         dựa trên encoder, để bù ma sát/tải không đều giữa các vòng quay
+ *         (giảm giật cục so với ánh xạ thẳng % -> duty trước đây).
+ *         Interface (-100..100) giữ nguyên nên jetson_comm.c/ackermann.c
+ *         không cần sửa gì.
  * @note   Nếu bánh chạy ngược chiều mong muốn, đảo dấu ở đây (không cần tháo dây).
  */
 HAL_StatusTypeDef DRV_Motor_SetSpeed(int8_t left, int8_t right);
+
+/**
+ * @brief  Chạy 1 bước vòng lặp PID tốc độ cho cả 2 bánh.
+ * @note   Tự throttle bên trong theo chu kỳ cố định (xem PID_INTERVAL_MS
+ *         trong motor_driver.c) — gọi hàm này ở MỌI vòng lặp while(1) trong
+ *         main.c là an toàn và không tốn gì khi chưa tới chu kỳ.
+ */
+void DRV_Motor_UpdatePID(void);
 
 /**
  * @brief  Đọc tổng xung encoder tích lũy từ 2 bánh.

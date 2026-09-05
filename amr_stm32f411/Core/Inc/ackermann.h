@@ -25,7 +25,11 @@ extern "C" {
  * @param  angular_z  Vận tốc góc mong muốn (rad/s); dương = quay trái
  * @param  speed_l    [out] Tốc độ bánh trái  (-100..100)
  * @param  speed_r    [out] Tốc độ bánh phải (-100..100)
- * @param  steer_deg  [out] Góc lái servo (độ); dương = phải, âm = trái
+ * @param  steer_deg  [out] Góc lái servo (độ); dương = TRÁI, âm = PHẢI
+ *                    (xác nhận thực nghiệm 2026-09-05: angular_z=+0.5 ->
+ *                     steer=+16.5 -> bánh lái chỉ sang TRÁI. Khớp chuẩn ROS
+ *                     REP-103 "angular_z dương = quay trái". Comment cũ ghi
+ *                     "dương = phải" là SAI, đã sửa.)
  *
  * @note   Mô hình ĐƠN GIẢN HÓA: 2 bánh sau cùng tốc độ (chưa bù vi sai
  *         tốc độ trái/phải khi vào cua). Chỉ servo trước thực hiện lái.

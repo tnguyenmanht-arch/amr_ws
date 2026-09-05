@@ -168,13 +168,26 @@ int main(void)
 		  APP_Comm_SendOdom(enc_l, enc_r, current_steer);
 	  }
 
+	  /* ---- Vòng PID tốc độ 2 bánh (closed-loop, xem motor_driver.c/motor_pid.h).
+	   * Tự throttle bên trong theo chu kỳ riêng, gọi mỗi vòng lặp không tốn gì
+	   * khi chưa tới lúc. ---- */
+	  DRV_Motor_UpdatePID();
+
 	  /* ---- Xử lý lệnh "$VEL" nhận từ Jetson (gọi on_cmd_vel khi đủ frame) ---- */
 	  APP_Comm_Parse();
 
 	  /* ---- AN TOÀN: watchdog $VEL — xem giải thích đầy đủ ở khai báo biến
-	   * last_vel_rx_ms phía trên. ---- */
+	   * last_vel_rx_ms phía trên.
+	   * ⚠️ BẮT BUỘC đọc lại HAL_GetTick() Ở ĐÂY, KHÔNG dùng biến 'now' chụp từ
+	   * đầu vòng lặp (bug đã sửa 2026-09-05): APP_Comm_Parse() ở trên đặt
+	   * last_vel_rx_ms = HAL_GetTick() tại thời điểm MỚI HƠN 'now' (do
+	   * APP_Comm_SendOdom blocking ~2-3ms xen giữa). Khi last_vel_rx_ms > now,
+	   * phép trừ unsigned TRÀN XUỐNG ~4.29 tỷ > 300 -> watchdog trip OAN ngay
+	   * sau mỗi lệnh $VEL hợp lệ, cắt động cơ liên tục (biểu hiện: xe giật cục
+	   * dù comm hoàn toàn tốt — $VEL nhận + parse 100% thành công). ---- */
+	  uint32_t now_wd = HAL_GetTick();
 	  if (last_vel_rx_ms != 0U && !vel_watchdog_tripped &&
-	      (now - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS) {
+	      (now_wd - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS) {
 		  DRV_Motor_SetSpeed(0, 0);
 		  vel_watchdog_tripped = 1U;
 	  }
