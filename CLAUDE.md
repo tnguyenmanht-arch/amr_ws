@@ -542,6 +542,51 @@ Sau khi test độc lập BNO055 thành công (mục trên), thêm 1 header 8 ch
 
 **Kết luận: PCB đã sẵn sàng gia công** — đấu chân đúng theo quyết định đã chốt (4 chân BNO055, không RESET/INT/ADD/BOOT), track động lực giữ nguyên margin đã tính (IPC-2221, ~3.2-5.2A cho track 1.5mm/1oz so với stall 2.3A), không phát hiện thêm vấn đề nào ở lần review này.
 
+**🔴🔴 BUG WATCHDOG TRÀN SỐ — nguyên nhân THẬT của "giật cục" suốt nhiều tháng (tìm ra 2026-09-05):**
+
+Trong lúc làm PID closed-loop, đo được `$VEL` "mất 80-100%": target chỉ hợp lệ 4-9% số chu kỳ PID. Đã loại trừ tuần tự (mỗi cái đều test thật, không suy đoán): script Python (threading/blocking/tốc độ gửi), đấu chéo TX/RX, dây jumper mới, GND, BNO055 block CPU, MCU tự reset, **đổi hẳn chip CH340 → CP2102 chính hãng**, và **thử cả board STM32F103 khác** — tất cả đều cho triệu chứng Y HỆT.
+
+Bước quyết định: thêm bộ đếm **byte thô** (`$RXST`: byte vào ISR / lỗi ORE / byte bỏ do buffer đầy / dòng hoàn chỉnh / dòng parse OK). Kết quả `$RXST,357,18,0,21,21` — **STM32 nhận đủ 21 dòng/giây và parse thành công 100%**. Tức `$VEL` KHÔNG hề mất! Thủ phạm nằm ở chỗ khác:
+
+```c
+uint32_t now = HAL_GetTick();          // chụp ở ĐẦU vòng lặp
+...
+APP_Comm_SendOdom(...);                // blocking ~2-3ms
+APP_Comm_Parse();                      // -> on_cmd_vel: last_vel_rx_ms = HAL_GetTick()  (MỚI HƠN 'now')
+if ((now - last_vel_rx_ms) > 300)      // 'now' CŨ trừ mốc MỚI -> TRÀN SỐ unsigned ~4.29 tỷ
+    DRV_Motor_SetSpeed(0, 0);          // -> watchdog trip OAN, giết lệnh vừa nhận
+```
+
+`now` và `last_vel_rx_ms` đều `uint32_t`. Chỉ cần `last_vel_rx_ms` lớn hơn `now` 1ms (luôn xảy ra khi `SendOdom` blocking xen giữa) là phép trừ tràn xuống ~4.29 tỷ > 300 → watchdog cắt động cơ **ngay sau mỗi lệnh `$VEL` hợp lệ**. Fix: đọc lại `HAL_GetTick()` vào biến `now_wd` ngay tại chỗ so sánh (sau `APP_Comm_Parse()`), đảm bảo `now_wd >= last_vel_rx_ms`.
+
+**Kết quả sau fix**: `$TCNT` từ 4-9% → **100%** chu kỳ có target hợp lệ, ngay lập tức.
+
+**Bài học quan trọng nhất (áp dụng cho mọi code timing sau này):**
+1. **KHÔNG dùng lại 1 mốc thời gian chụp từ đầu vòng lặp để so với mốc được cập nhật ở giữa vòng lặp** — nhất là khi giữa 2 điểm đó có hàm blocking. Luôn đọc lại `HAL_GetTick()` ngay tại chỗ so sánh.
+2. Phép trừ `uint32_t` tràn xuống **âm thầm, không cảnh báo, không crash** — chỉ biểu hiện thành hành vi kỳ lạ ở tầng ứng dụng.
+3. **Đo ở mức thấp nhất có thể trước khi đổ lỗi phần cứng**: 2 ngày nghi dây/chip/board đều sai; 1 bộ đếm byte thô giải quyết trong 10 phút. Khi triệu chứng giống hệt nhau qua **2 board khác nhau + 2 chip USB-UART khác nhau**, thứ chung duy nhất là PHẦN MỀM — đó là dấu hiệu rõ ràng phải quay vào soi code.
+4. ⚠️ **`amr_stm32f103/` có cùng bug này** (copy cùng pattern `main.c`) — chưa sửa vì không còn dùng F103. Nếu quay lại F103 phải sửa trước.
+
+**🔧 PID tốc độ closed-loop (2026-09-05, commit `1d4f0c9`):**
+
+DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự PID nội bộ) → tự viết PID trong firmware, không cần thêm phần cứng (encoder + PWM đã đủ).
+
+- **`motor_pid.c/h` (mới)**: bộ PI tách riêng, có anti-windup (kẹp output + rút integral khi bão hoà). **Bỏ khâu D** — tick encoder rời rạc, đạo hàm chỉ khuếch đại nhiễu 1-2 tick thành dao động PWM.
+- **`DRV_Motor_UpdatePID()`** chạy mỗi 10ms (dùng chung nhịp với `$ODO` 100Hz sẵn có, không cần timer mới). `DRV_Motor_SetSpeed()` giờ chỉ LƯU target; interface (-100..100) giữ nguyên nên `ackermann.c`/`jetson_comm.c` không phải sửa.
+- **⚠️ AN TOÀN — khi `target=0` phải ép `duty=0` TRỰC TIẾP, KHÔNG chạy `PID_Update()`**: nếu encoder đọc sai (nhiễu/đứt dây/lỗi dấu), PID sẽ "tưởng" còn sai số cần sửa và **đè lên lệnh dừng lẫn watchdog** → xe không dừng được bằng phần mềm, phải cắt nguồn (**đã xảy ra thật** với lỗi dấu encoder trái). Nguyên tắc chung: lệnh dừng phải nằm NGOÀI vòng feedback, không bao giờ phụ thuộc cảm biến.
+- **`LEFT_ENCODER_SIGN = -1.0f`**: encoder trái đếm NGƯỢC chiều với PWM dương (khác chuyện đảo dấu output bánh phải — 2 việc độc lập). Phát hiện qua log: `out_l` dính cứng +100 trong khi `delta_l` luôn âm ổn định.
+- **`MAX_TICKS_PER_INTERVAL = 69.0f`** — ĐO THỰC NGHIỆM (chạy hết ga: trái 68.7, phải 70.0 tick/10ms; lấy bánh chậm hơn để cả 2 đều bám được setpoint). Để tạm 400 trước đó khiến PID **bão hoà 100% duty vĩnh viễn** → thoái hoá thành open-loop full ga (target 25% nhưng chạy 100% tốc độ).
+- **`Kp=1.5`, `Ki=8.0`** — verify 30s @ target 50%: bám sai số ~2% dưới mục tiêu, dao động bánh trái **±0.3%**, bánh phải **±1.7%**. KHÔNG tăng Ki để triệt nốt 2% (rủi ro mang overshoot quay lại, không đáng).
+- **Tốc độ thực tế**: full ga ≈ **0.55 m/s** (khớp `ACK_MAX_SPEED_MS=0.5` đang đặt). Khuyến nghị chạy indoor ở **0.25-0.3 m/s (50-60%)** để PID còn "khoảng dự trữ ga" bù dốc/tải — chạy sát 100% thì PID bão hoà, mất khả năng điều tiết.
+- **Test tổ hợp motor + servo đồng thời (8 góc lái, 32s)**: KHÔNG sụt tốc tại bất kỳ thời điểm servo đánh lái nào → USART1 (servo) và PID/encoder/USART2 không xung đột.
+- **Chiều lái xác nhận thực nghiệm**: `angular_z=+0.5` → `steer=+16.5°` → bánh chỉ sang **TRÁI**, khớp chuẩn ROS REP-103. Comment cũ trong `ackermann.h` ghi "dương = phải" là SAI, đã sửa.
+
+**Việc còn treo về servo (chưa làm, cần sàn rộng vài mét):**
+- Servo là **bus servo có vòng kín nội bộ** → **KHÔNG cần và KHÔNG nên** thêm PID bên STM32 (2 vòng kín lồng nhau sẽ đánh nhau; và ta cũng không có cảm biến đo góc bánh lái độc lập).
+- Vấn đề thật là **hiệu chuẩn**: `ACK_STEER_TRIM_DEG=1.5°` và `K_ANGULAR_TO_DEG=30.0` đều đang là số ước lượng bằng mắt. Cách chuẩn: **test vòng tròn** (chạy tốc độ + góc lái cố định, đo đường kính vòng tròn bằng thước) rồi suy góc lái thật theo mô hình xe đạp `δ = atan(L/R)` với `L=0.21m`.
+- **Trim quan trọng hơn hệ số góc**: Nav2/lane-following tự bù được sai số hệ số, nhưng KHÔNG bù được lệch tâm (sai số hằng số kéo xe về 1 phía).
+- ⚠️ Hiện có **2 chỗ trim cùng lúc**: `ACK_STEER_TRIM_DEG=1.5°` (firmware) và `steering_trim_angular_z=-0.06` (ROS, `hardware.launch.py`) — cộng dồn/triệt tiêu lẫn nhau rất khó lần. **Nên bỏ 1 chỗ (giữ firmware) TRƯỚC khi hiệu chuẩn lại.**
+
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive đúng, tham số khớp xe thật (`wheel_radius=0.10`, `wheel_base=0.21`, `ticks_per_rev=990`)
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
@@ -613,7 +658,8 @@ Sau khi test độc lập BNO055 thành công (mục trên), thêm 1 header 8 ch
 - Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái 32-bit + TIM4 phải 16-bit trên F411), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32, đã cân nhắc và loại bỏ giả thuyết đổi 5V khi debug giật cục 2026-08-19)
 - Servo lái: HTS-20H (**`SERVO_ID=1`**, đổi từ 9 → 1 ngày 2026-08-19), USART1 PA9(TX)/PA10(RX), 115200 baud — qua board debug BusLinker-V2.5 (chỉ 1 đường nguồn Vin 5-14V qua terminal, chân 5V header là OUTPUT không phải input), trim `+1.5°` bù lệch cơ khí (**cần verify lại trim sau khi đổi servo ID=1**, chưa làm)
 - Chiều motor: bánh phải **đảo dấu** trong `DRV_Motor_SetSpeed()` cho wiring DRV8871 hiện tại (xác nhận thực nghiệm 2026-08-19 bằng quan sát trực tiếp) — quy ước dấu KHÔNG cố định qua các lần đấu dây lại, luôn đo/quan sát lại sau mỗi lần đấu mới
-- **⚠️ Giật cục motor ở duty cao: CHƯA giải quyết dứt điểm** — đã xác định 2 nguyên nhân (script test timing đã fix; dây M+/M- nhỏ đã cải thiện nhưng còn tái xuất hiện) — xem chi tiết đầy đủ ở trên, việc tiếp theo là hoàn thiện dây M+/M-
+- **✅ Giật cục motor: ĐÃ GIẢI QUYẾT DỨT ĐIỂM (2026-09-05)** — nguyên nhân thật là **bug tràn số unsigned trong watchdog `$VEL`** ở `main.c`, không phải dây lỏng/driver/CH340 như nghi suốt nhiều tháng. Xem mục "🔴 Bug watchdog tràn số" ở Giai đoạn 2. Các nghi vấn dây M+/M- trước đây có thể đã góp phần nhưng KHÔNG phải nguyên nhân chính.
+- **Điều khiển tốc độ: closed-loop PID (PI) từ 2026-09-05** — `motor_pid.c/h` + `DRV_Motor_UpdatePID()` chạy mỗi 10ms. `MAX_TICKS_PER_INTERVAL=69` (đo thực nghiệm), `Kp=1.5`, `Ki=8.0` (đã verify 30s, sai số bám ~2%). Bỏ khâu D (tick encoder rời rạc → đạo hàm chỉ khuếch đại nhiễu).
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
