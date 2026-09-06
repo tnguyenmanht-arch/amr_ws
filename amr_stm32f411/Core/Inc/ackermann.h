@@ -37,24 +37,59 @@ extern "C" {
 #define ACK_MIN_SPEED_MS        1e-4f
 
 /* Bù lệch tâm cơ khí: LỆNH servo ứng với lúc bánh xe THẲNG.
- * ĐO THỰC TẾ trên Jetson 2026-09-06 (test vòng tròn): xe đi thẳng khi
- * steer_deg = −4.8°, không phải 0°. Giá trị cũ +1.5f là SAI — nó ước lượng
- * bằng mắt, và sai số bị tham số ROS `steering_trim_angular_z=-0.206` che mất.
- * Sau khi firmware đổi sang θ = atan(H·ω/v) thì trim bên ROS không che được
- * nữa (trim tính bằng rad/s cho ra GÓC PHỤ THUỘC TỐC ĐỘ, còn lệch tâm cơ khí
- * là một GÓC KHÔNG ĐỔI) → phải sửa ở đây. `steering_trim_angular_z` đã đặt về
- * 0 vĩnh viễn bên ROS: trim nay gộp về đúng 1 chỗ duy nhất là hằng số này.
+ *
+ * ĐO TRỰC TIẾP DƯỚI SÀN trên Jetson 2026-09-06 (chiều, sau khi nạp firmware
+ * GAIN) — hoá ra **tâm servo CHÍNH LÀ vị trí bánh thẳng, không cần bù gì**.
+ *
+ * Cách đo (dò nhị phân, không cần nạp lại firmware mỗi vòng): chạy thẳng
+ * v=0.20 m/s, cộng thêm `angular.z` bias từ ROS, đo GÓC QUAY của xe:
+ *     bias 0.000 -> lệch PHẢI 11.59°   (thước: 12cm / 1.19m)
+ *     bias 0.034 -> lệch PHẢI  5.82°   (thước:  6cm / 1.18m)
+ *     bias 0.051 -> lệch TRÁI   1.88°  (b−a = +1cm trên khung 304mm)
+ *     bias 0.068 -> lệch TRÁI rõ
+ *   -> nội suy 2 điểm kẹp sát: bias đi thẳng = 0.0468 rad/s
+ *   -> ở bias đó firmware XUẤT LỆNH servo = −0.08° và xe đi THẲNG
+ *   => vị trí servo cho bánh thẳng = −0.08° ≈ 0. Độ nhạy ±0.3°.
+ *
+ * ⭐ Lập luận này KHÔNG phụ thuộc ACK_STEER_GAIN có đúng hay không: ta chỉ
+ * dùng con số servo mà firmware THỰC SỰ xuất ra. GAIN chỉ ảnh hưởng cách
+ * firmware tính ra nó, không ảnh hưởng kết luận về giá trị đó.
+ *
+ * Lịch sử 2 giá trị SAI trước đây, ghi lại để không quay lại:
+ *   +1.5f  (2026-07-07) — ước lượng bằng mắt, chưa từng đo.
+ *   -4.8f  (2026-09-05) — suy ra từ test lệch ngang trên firmware CŨ, rồi
+ *          giải ngược qua công thức `angular_z*30 + trim`. Chuỗi suy luận đó
+ *          bị nhiễu và cho kết quả lệch tận 4.8°. Bài học: suy trim qua nhiều
+ *          tầng công thức thì sai số dồn — ĐO TRỰC TIẾP góc quay khi chạy
+ *          thẳng, đừng suy gián tiếp.
+ *
+ * `steering_trim_angular_z` bên ROS giữ 0 VĨNH VIỄN — trim gộp về đúng 1 chỗ
+ * duy nhất là hằng số này (trim tính bằng rad/s cho ra góc phụ thuộc tốc độ,
+ * còn lệch tâm cơ khí là góc không đổi, nên về nguyên tắc không bù được ở đó).
  * CẦN ĐO LẠI nếu tháo/lắp lại servo hoặc tay đòn lái. */
-#define ACK_STEER_TRIM_DEG      -4.8f
+#define ACK_STEER_TRIM_DEG      0.0f
 
 /* Tỉ số truyền tay đòn lái: góc_bánh_thật = GAIN × (steer_deg − TRIM).
- * ĐO THỰC TẾ trên Jetson 2026-09-06 bằng 2 test vòng tròn ở 2 góc khác nhau
- * (servo +22.2° → Ø1.46m → bánh 16.05° → hệ số 0.594;
- *  servo +30.0° → Ø1.10m → bánh 20.90° → hệ số 0.601), cộng điểm gốc
- * (bánh thẳng tại servo −4.8°). Hai điểm độc lập lệch nhau 1% → tuyến tính.
- * ⚠️ Đây là hệ số HIỆU DỤNG, đã gộp cả trượt lốp bánh trước (khung này lái
- * SONG SONG, không phải Ackermann thật) — đo trên sàn cứng với lốp hiện tại.
- * Đổi mặt sàn (thảm) hoặc thay lốp thì phải đo lại. */
+ *
+ * ⚠️⚠️ GIÁ TRỊ NÀY CHƯA ĐÁNG TIN — CẦN ĐO LẠI SAU KHI NẠP TRIM=0.0f.
+ * Nó được fit từ 2 test vòng tròn (servo +22.2° → Ø1.46m; +30.0° → Ø1.10m)
+ * cộng điểm gốc "bánh thẳng tại servo −4.8°" — mà điểm gốc đó nay đã biết là
+ * SAI 4.8°. Sai ở điểm gốc kéo lệch cả hệ số. Hai lần đo lệch nhau 1% chỉ
+ * chứng minh chúng NHẤT QUÁN VỚI NHAU, không chứng minh chúng đúng.
+ *
+ * Thêm nữa, đo dưới sàn 2026-09-06 cho thấy hệ số quanh vùng TÂM thấp hơn
+ * nhiều (~0.3-0.4, tán xạ lớn vì lệch ngang nhỏ nên sai số đo tương đối cao),
+ * trong khi ở góc lớn ra ~0.55-0.62. Tức quan hệ nhiều khả năng PHI TUYẾN,
+ * không phải một hằng số. Chưa đủ dữ liệu sạch để mô hình hoá.
+ *
+ * ⚠️ Hệ số HIỆU DỤNG: đã gộp cả trượt lốp bánh trước (khung này lái SONG
+ * SONG, không phải Ackermann thật), đo trên sàn cứng với lốp hiện tại. Đổi
+ * mặt sàn (thảm) hoặc thay lốp thì phải đo lại.
+ *
+ * VIỆC CẦN LÀM (phiên Jetson, sau khi nạp firmware có TRIM=0.0f): chạy lại
+ * vòng tròn bẻ hết lái CẢ 2 CHIỀU, đo đường kính ở TÂM TRỤC SAU, rồi fit lại
+ * GAIN trên điểm gốc đúng. Cũng chỉ khi đó mới kết luận được tay đòn có thật
+ * sự bất đối xứng trái/phải hay không (số liệu cũ bị trim sai làm nhiễu). */
 #define ACK_STEER_GAIN          0.597f
 
 /**

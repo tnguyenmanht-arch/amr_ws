@@ -742,39 +742,92 @@ lệch tâm cơ khí là GÓC cố định, phải bù bằng góc chứ không 
 trước khi sửa**. Không giật, không dao động. `motor_pid.c` / `motor_driver.c` / `main.c`
 không sửa một dòng nào.
 
-### 🔴 VIỆC CẦN LÀM Ở PHIÊN JETSON — 2 LỖ HỔNG HIỆU CHUẨN CÒN LẠI
+### ✅ ĐÃ ĐO XONG Ở PHIÊN JETSON (2026-09-06, chiều) — TRIM SAI 4.8°, ĐÃ SỬA VỀ 0.0
 
-Cả hai đều là **phép đo dưới sàn**, không làm được bên Windows (cáp CP2102 vướng).
+Chạy 2 lỗ hổng mà phiên Windows nêu. Kết quả **lật ngược cả hai kết luận trung gian** — ghi
+lại đầy đủ vì quá trình suy luận ở đây quan trọng hơn con số.
 
-**(1) `GAIN=0.597` đang bị NGOẠI SUY ngoài vùng hiệu chuẩn.** Nó được đo ở servo **+22.2°
-và +30.0°**, nhưng firmware giờ chạy tới **±35°**. Cơ cấu lái bốn khâu vốn phi tuyến — tay
-đòn quay càng xa càng lệch khỏi vị trí vuông góc nên hiệu suất truyền **giảm dần**. Mô hình
-tuyến tính khớp 1% *bên trong* khoảng đo không chứng minh được gì *bên ngoài* nó.
-→ Hệ quả: ở **bẻ hết lái**, vi sai và `/odom` có thể lệch. Ở góc nhỏ/vừa (đa số thời gian
-chạy) vẫn nằm trong vùng đã hiệu chuẩn nên không đổi.
-→ ⚠️ Lưu ý đọc log: con số "góc bánh" mà script test in ra là **số TÍNH từ GAIN**, không
-phải số ĐO. Đừng dùng nó làm bằng chứng xác nhận chính GAIN (lỗi suy luận vòng tròn đã mắc
-một lần trong dự án này, xem bài học ở Giai đoạn 3).
+#### Vòng tròn bẻ hết lái 2 chiều (đo ở tâm trục sau, đã trừ đoạn mồi ~0.2m)
 
-**(2) GAIN mới chỉ đo BÊN TRÁI.** Cả 2 điểm hiệu chuẩn đều servo dương (+22.2, +30.0). Tay
-đòn lái hiếm khi đối xứng hoàn hảo → hệ số bên phải có thể khác. Nếu khác thật thì `/odom`
-sẽ lệch một chiều khi cua phải: sai số **tích luỹ có hướng**, đúng loại phá SLAM nặng nhất
-và khó lần nhất.
+| chiều | servo | đường kính đo | R | góc bánh thực | GAIN suy ra |
+|---|---|---|---|---|---|
+| trái | +25.35° | 1.40–1.45 m | 0.698 m | 16.73° | 0.555 |
+| phải | −35.0° | **1.27 m** | 0.619 m | 18.73° | 0.620 |
 
-**Cách làm — một bài test giải quyết cả hai:** chạy vòng tròn ở **bẻ hết lái, CẢ 2 CHIỀU**
-(`linear.x=0.2`, `angular.z=±1.5`), đo đường kính bằng thước. Kỳ vọng nếu GAIN đúng ở biên:
+Thoạt nhìn = bất đối xứng 12%, đúng như lỗ hổng 2 dự đoán. **Nhưng kết luận đó SAI** — xem dưới.
 
-| chiều | góc bánh model | R trục sau | đường kính đo được |
-|---|---|---|---|
-| trái (ω=+1.5) | +18.03° | 0.645 m | **1.29 m** |
-| phải (ω=−1.5) | −18.03° | 0.645 m | **1.29 m** |
+#### 🔴 Trim `−4.8°` là SAI, lệch tận 4.8° — tìm ra bằng test chạy thẳng
 
-- Hai chiều ra **khác nhau** → GAIN bất đối xứng, cần tách thành 2 hằng số trái/phải.
-- Cả hai đều ra **lớn hơn 1.29m** → GAIN ở biên nhỏ hơn 0.597 (phi tuyến như dự đoán), cần
-  hoặc thu hẹp tầm lái về vùng đã đo, hoặc chuyển sang bảng tra/mô hình bậc 2.
-- Nhớ **đo ở TÂM TRỤC SAU**, không phải bánh trước (bài học đã ghi ở Giai đoạn 3).
+Chạy thẳng (`angular.z=0`) trên sàn: xe lệch **12cm sang PHẢI** sau 1.19m → góc bánh thực
+**2.05° phải** dù lệnh là thẳng. Trim `−4.8` (suy ra 2026-09-05) hoàn toàn sai.
 
-Sau đó mới chạy SLAM.
+> ⚠️ Phần verify "đi thẳng 4 tốc độ" bên Windows **không bắt được lỗi này**: nó đo *chênh lệch
+> encoder 2 bánh*, mà khi θ=0 thì k=0 nên 2 bánh bằng nhau là hiển nhiên. Nó xác nhận **vi sai
+> bằng 0**, KHÔNG xác nhận **xe đi thẳng**. Bài học: test bench đo được đại lượng nội bộ không
+> thay thế được test dưới sàn đo quỹ đạo thật.
+
+**Và điều này làm hỏng luôn kết luận bất đối xứng ở trên**: cả 2 vòng tròn đều chạy với thiên
+lệch 2.05° phải bake sẵn → cua trái bị thiên lệch NGƯỢC chiều (góc thực nhỏ hơn lệnh), cua phải
+bị thiên lệch CÙNG chiều (góc thực lớn hơn lệnh). Đó **chính xác là kiểu sai lệch tự sinh ra
+bất đối xứng giả**, và đúng bằng cỡ đo được (2.0°). **Không thể kết luận `GAIN_L ≠ GAIN_R` khi
+trim còn sai.** Suýt tách GAIN thành 2 hằng số = fit 2 tham số để bù cho 1 tham số sai.
+
+#### Cách đo trim: dò bias từ ROS, KHÔNG cần nạp lại firmware mỗi vòng
+
+Ở tốc độ cố định, `angular.z` quy đổi được sang góc bánh (`ω = v·tan θ / H`), nên cộng thêm bias
+vào `angular.z` là mô phỏng được việc đổi trim. Dò nhị phân 4 điểm:
+
+| bias (rad/s) | góc quay đo được | cách đo |
+|---|---|---|
+| 0.000 | PHẢI 11.59° | thước 12cm / 1.19m |
+| 0.034 | PHẢI 5.82° | thước 6cm / 1.18m |
+| 0.051 | TRÁI 1.88° | `b−a = +1cm` trên khung 304mm |
+| 0.068 | TRÁI rõ | định tính |
+
+→ nội suy 2 điểm kẹp sát: **bias đi thẳng = 0.0468 rad/s**
+→ ở bias đó firmware **xuất lệnh servo −0.08°**, và ở lệnh đó xe đi thẳng
+→ **vị trí servo cho bánh thẳng = −0.08° ≈ 0**, độ nhạy ±0.3°
+
+⭐ Lập luận này **không phụ thuộc `ACK_STEER_GAIN` có đúng hay không** — chỉ dùng con số servo
+mà firmware THỰC SỰ xuất ra. GAIN chỉ ảnh hưởng cách firmware tính ra nó.
+
+**→ `ACK_STEER_TRIM_DEG` đã sửa `−4.8f` → `0.0f`.** Tâm cơ khí servo chính là vị trí bánh thẳng,
+không cần bù. Cả 2 giá trị trước (`+1.5` ước lượng bằng mắt, `−4.8` suy gián tiếp) đều sai.
+
+**Bài học:** suy trim qua nhiều tầng công thức thì sai số dồn (giá trị −4.8 lệch tới 4.8°).
+**Đo TRỰC TIẾP góc quay khi chạy thẳng** — rẻ, nhanh, không qua mô hình nào.
+
+#### Mẹo đo miễn nhiễm sai số đặt xe
+
+Đo *lệch ngang* phụ thuộc điểm xuất phát — một lần đặt xe sai chỗ đã làm hỏng một phép đo.
+Đo **góc quay** thì không: lấy 2 khoảng cách vuông góc `a` (đuôi) / `b` (đầu) trên **cùng một
+mặt bên khung xe** tới đường tham chiếu; `góc = atan((b−a)/304mm)`. Mọi sai lệch điểm xuất phát
+tự triệt tiêu trong hiệu `b−a`.
+
+#### Trạng thái sau khi sửa (đã tính, CHƯA nạp)
+
+Với `TRIM=0.0`: clamp thành **đối xứng hoàn hảo** — (a) giới hạn servo cho ±20.89° hai chiều
+như nhau, nên (b) `ACK_MAX_WHEEL_DEG=18.0` là cái chặn; servo chạy ±30.15°, nằm gọn trong ±35.
+
+### 🔴 VIỆC CẦN LÀM TIẾP
+
+**Phiên Windows:** build + nạp firmware có `ACK_STEER_TRIM_DEG=0.0f` (source đã sửa sẵn ở
+commit này, **board vẫn đang chạy bản `−4.8` cho tới khi nạp**). Không cần sửa gì thêm.
+
+**Phiên Jetson sau khi nạp:**
+1. Verify chạy thẳng: `angular.z=0` phải đi thẳng luôn, không cần bias
+2. **Đo lại `ACK_STEER_GAIN`** — giá trị `0.597` hiện tại fit trên điểm gốc SAI (servo −4.8),
+   nên không đáng tin. Chạy lại vòng tròn bẻ hết lái 2 chiều, fit lại trên điểm gốc đúng.
+3. Chỉ khi đó mới kết luận được tay đòn có thật sự bất đối xứng trái/phải hay không.
+4. Xong 1-3 mới tới SLAM.
+
+⚠️ **`ACK_MAX_WHEEL_DEG=18.0` đang ở "chế độ đo"** — comment trong `ackermann.h` ghi rõ *"phải
+chỉnh lại xuống giá trị an toàn (điểm chạm TRỪ ~2° dự phòng) ngay sau khi đo xong, KHÔNG để
+18.0 khi chạy tự động"*. Nhưng comment đó lại nói "ở 15.04° bánh đã sắp chạm" trong khi phần
+CLAUDE.md ở trên ghi "ở 18.03° còn hở 5mm, cả 2 bên bằng nhau" — **hai chỗ mâu thuẫn, cần xác
+minh lại bằng mắt** trước khi chạy tự động. Thực tế 2026-09-06 đã chạy nhiều vòng tròn ở đúng
+18.0° không thấy kẹt.
+
 
 ### 📐 Số liệu hình học cho Nav2 (L=304, W=268, wheelbase=210; giả định nhô ra đều 47mm/đầu)
 
@@ -980,7 +1033,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 - [x] `amr_slam/launch/slam.launch.py` — 4 node: serial_driver, sllidar, slam_toolbox, static_tf
   - LiDAR offset tạm thời: `base_link → laser_frame` x=0.15m, z=0.10m (cần đo lại sau khi lắp)
 - [x] `colcon build --packages-select amr_slam` — 0 errors
-- [ ] ⏳ **CHƯA CHẠY** — firmware đã có đủ vi sai + `ACK_STEER_GAIN=0.597` + trim `−4.8°` (nạp + verify 2026-09-06), nên `/odom` không còn báo thừa 1.54 lần nữa. **Còn 1 việc chặn:** GAIN đang bị ngoại suy ra ngoài vùng hiệu chuẩn (đo ở servo ≤30°, nay chạy tới ±35°) và **mới chỉ đo bên trái**. Phải chạy test vòng tròn **bẻ hết lái CẢ 2 CHIỀU** (kỳ vọng Ø1.29m mỗi chiều) trước khi SLAM — xem "VIỆC CẦN LÀM Ở PHIÊN JETSON" ở Giai đoạn 2.
+- [ ] ⏳ **CHƯA CHẠY** — 2026-09-06 (chiều) phát hiện `ACK_STEER_TRIM_DEG=−4.8` SAI tận 4.8°: lệnh đi thẳng mà xe lệch 12cm/1.19m. Đã sửa source về `0.0f` nhưng **board chưa nạp**. Sau khi nạp còn phải **đo lại `ACK_STEER_GAIN`** (giá trị 0.597 fit trên điểm gốc sai nên không đáng tin) rồi mới SLAM — xem "ĐÃ ĐO XONG Ở PHIÊN JETSON" ở Giai đoạn 2.
 - [ ] Chạy thực tế: `ros2 launch amr_slam slam.launch.py` và kiểm tra `/map`
 - [ ] Lưu bản đồ `.yaml` + `.pgm` (`ros2 run nav2_map_server map_saver_cli`)
 
@@ -998,7 +1051,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 - **✅ Giật cục motor: ĐÃ GIẢI QUYẾT DỨT ĐIỂM (2026-09-05)** — nguyên nhân thật là **bug tràn số unsigned trong watchdog `$VEL`** ở `main.c`, không phải dây lỏng/driver/CH340 như nghi suốt nhiều tháng. Xem mục "🔴 Bug watchdog tràn số" ở Giai đoạn 2. Các nghi vấn dây M+/M- trước đây có thể đã góp phần nhưng KHÔNG phải nguyên nhân chính.
 - **Điều khiển tốc độ: closed-loop PID (PI) từ 2026-09-05** — `motor_pid.c/h` + `DRV_Motor_UpdatePID()` chạy mỗi 10ms. `MAX_TICKS_PER_INTERVAL=69` (đo thực nghiệm), `Kp=1.5`, `Ki=8.0` (đã verify 30s, sai số bám ~2%). Bỏ khâu D (tick encoder rời rạc → đạo hàm chỉ khuếch đại nhiễu).
 - **Vi sai 2 bánh sau + góc lái theo vận tốc (2026-09-06)** — `ackermann.c` dùng `V_L,R = V·(1 ∓ D·tanθ/2H)` (D=0.217, H=0.21) và `θ = atan(H·ω/v)` thay hằng số `K_ANGULAR_TO_DEG=30` cũ (chỉ đúng tại v≈0.4 m/s). **Góc tính vi sai phải TRỪ trim** (trim là bù lệch tâm cơ khí, không phải góc bánh thật) — nếu không, đi thẳng sinh vi sai giả 1.35% → `/odom` quay ma 0.9°/s. `K_ANGULAR_TO_DEG` chỉ còn dùng cho nhánh `v≈0` (từ 2026-09-06 mang đơn vị ĐỘ GÓC BÁNH, không phải độ lệnh servo). Verify tĩnh đạt; test vòng tròn dưới sàn đã làm bên Jetson, đạt.
-- **Tỉ số truyền lái + trim + giới hạn (2026-09-06)** — `ACK_STEER_GAIN=0.597` (bánh chỉ quay ~60% góc servo), `ACK_STEER_TRIM_DEG=−4.8°` (thay `+1.5°` ước lượng bằng mắt; trim nay gộp về DUY NHẤT chỗ này, `steering_trim_angular_z` bên ROS giữ 0 vĩnh viễn vì trim rad/s cho ra góc phụ thuộc tốc độ trong khi lệch tâm cơ khí là góc cố định). Giới hạn tách làm 2: `ACK_MAX_SERVO_DEG=35` (trần kỹ thuật, servo thật đi được ±120°) và `ACK_MAX_WHEEL_DEG=18` (**giới hạn THẬT — bánh chạm khung, đo còn hở 5mm, cả 2 bên bằng nhau**). Clamp áp trên **góc bánh** để lái đối xứng 2 chiều. Bán kính cua nhỏ nhất **0.645m**.
+- **Tỉ số truyền lái + trim + giới hạn (2026-09-06)** — `ACK_STEER_GAIN=0.597` (⚠️ CHƯA ĐÁNG TIN, fit trên điểm gốc sai, phải đo lại sau khi nạp trim mới), `ACK_STEER_TRIM_DEG=0.0°` (đo trực tiếp dưới sàn chiều 2026-09-06; hai giá trị trước `+1.5` và `−4.8` đều SAI — **source đã sửa, board chưa nạp**; trim nay gộp về DUY NHẤT chỗ này, `steering_trim_angular_z` bên ROS giữ 0 vĩnh viễn vì trim rad/s cho ra góc phụ thuộc tốc độ trong khi lệch tâm cơ khí là góc cố định). Giới hạn tách làm 2: `ACK_MAX_SERVO_DEG=35` (trần kỹ thuật, servo thật đi được ±120°) và `ACK_MAX_WHEEL_DEG=18` (**giới hạn THẬT — bánh chạm khung, đo còn hở 5mm, cả 2 bên bằng nhau**). Clamp áp trên **góc bánh** để lái đối xứng 2 chiều. Bán kính cua nhỏ nhất **0.645m**.
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)

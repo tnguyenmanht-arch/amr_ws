@@ -11,8 +11,9 @@
  * KHÔNG dùng cho lúc xe đang chạy.
  * ⚠️ Từ 2026-09-06 hằng số này mang đơn vị ĐỘ GÓC BÁNH (không phải độ lệnh
  * servo như trước), để đồng nhất đơn vị với nhánh atan(). Hệ quả trên bàn:
- * cùng một ω sẽ cho ra lệnh servo KHÁC trước, và ω ≥ 0.5 đều bão hoà ở giới
- * hạn ±15.0° — đúng khả năng thật của cơ cấu, không phải lỗi. */
+ * cùng một ω sẽ cho ra lệnh servo KHÁC trước, và ω ≥ 0.6 đều bão hoà ở giới
+ * hạn góc bánh ±18.0° — đúng khả năng thật của cơ cấu, không phải lỗi.
+ * (Comment cũ ghi "ω ≥ 0.5 bão hoà ±15.0°" là số của thời TRIM=−4.8, lỗi thời.) */
 #define K_ANGULAR_TO_DEG    30.0f
 
 void CALC_Ackermann(float linear_x, float angular_z,
@@ -40,14 +41,17 @@ void CALC_Ackermann(float linear_x, float angular_z,
     }
 
     /* ---- 3. Giới hạn góc bánh, ĐỐI XỨNG 2 CHIỀU, theo CẢ HAI ràng buộc ----
-     * (a) Từ giới hạn LỆNH SERVO: tâm servo lệch (TRIM = −4.8°) nên cùng biên
-     *     ±ACK_MAX_SERVO_DEG lại cho ra 2 góc bánh khác nhau (+20.8° / −15.0°).
-     *     Lấy phía HẸP HƠN làm chung cho cả 2 chiều -> xe cua trái/phải như
-     *     nhau, và lệnh servo chắc chắn nằm gọn trong ±ACK_MAX_SERVO_DEG.
+     * (a) Từ giới hạn LỆNH SERVO: nếu tâm servo lệch (TRIM ≠ 0) thì cùng biên
+     *     ±ACK_MAX_SERVO_DEG lại cho ra 2 góc bánh khác nhau. Lấy phía HẸP HƠN
+     *     làm chung cho cả 2 chiều -> xe cua trái/phải như nhau, và lệnh servo
+     *     chắc chắn nằm gọn trong ±ACK_MAX_SERVO_DEG.
      * (b) Từ giới hạn GÓC BÁNH (bánh chạm khung): ACK_MAX_WHEEL_DEG.
-     * Lấy cái NHỎ HƠN. Hiện (a) chặn trước (15.0° < 30°); khi nào nới được
-     * ACK_MAX_SERVO_DEG thì (b) tự động thành chốt chặn mà không phải sửa code.
-     * Tính tại đây thay vì hardcode để tự đúng lại nếu đổi TRIM/GAIN/giới hạn. */
+     * Lấy cái NHỎ HƠN.
+     * Với bộ hằng số hiện tại (MAX_SERVO=35, TRIM=0.0, GAIN=0.597): (a) cho
+     * ±20.9° đối xứng cả 2 chiều, nên (b)=18.0° mới là cái CHẶN TRƯỚC.
+     * ⚠️ Đừng hardcode con số vào đây — tính runtime nên tự đúng lại khi đổi
+     * TRIM/GAIN/giới hạn. (Comment cũ ghi "(a) chặn trước 15.0° < 30°" và
+     * "+20.8°/−15.0°" là số của thời MAX_SERVO=30 + TRIM=−4.8, đã lỗi thời.) */
     float lim_l = ( ACK_MAX_SERVO_DEG - ACK_STEER_TRIM_DEG) * ACK_STEER_GAIN;
     float lim_r = (-ACK_MAX_SERVO_DEG - ACK_STEER_TRIM_DEG) * ACK_STEER_GAIN;
     float lim   = fminf(fabsf(lim_l), fabsf(lim_r));
