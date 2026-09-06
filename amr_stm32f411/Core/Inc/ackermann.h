@@ -86,26 +86,34 @@ extern "C" {
 
 /* Tỉ số truyền tay đòn lái: góc_bánh_thật = GAIN × (steer_deg − TRIM).
  *
- * ⚠️⚠️ GIÁ TRỊ NÀY CHƯA ĐÁNG TIN — CẦN ĐO LẠI SAU KHI NẠP TRIM=0.0f.
- * Nó được fit từ 2 test vòng tròn (servo +22.2° → Ø1.46m; +30.0° → Ø1.10m)
- * cộng điểm gốc "bánh thẳng tại servo −4.8°" — mà điểm gốc đó nay đã biết là
- * SAI 4.8°. Sai ở điểm gốc kéo lệch cả hệ số. Hai lần đo lệch nhau 1% chỉ
- * chứng minh chúng NHẤT QUÁN VỚI NHAU, không chứng minh chúng đúng.
+ * ĐO LẠI 2026-09-07 trên firmware đã có TRIM=0.0f (điểm gốc ĐÚNG), bằng test
+ * vòng tròn bẻ hết lái, đo đường kính ở TÂM TRỤC SAU rồi trừ đoạn mồi ~0.2m:
  *
- * Thêm nữa, đo dưới sàn 2026-09-06 cho thấy hệ số quanh vùng TÂM thấp hơn
- * nhiều (~0.3-0.4, tán xạ lớn vì lệch ngang nhỏ nên sai số đo tương đối cao),
- * trong khi ở góc lớn ra ~0.55-0.62. Tức quan hệ nhiều khả năng PHI TUYẾN,
- * không phải một hằng số. Chưa đủ dữ liệu sạch để mô hình hoá.
+ *   chiều   đường kính   bán kính   góc bánh thực   GAIN
+ *   TRÁI      1.19 m      0.578 m      19.96°       0.570
+ *   TRÁI      1.15 m      0.558 m      20.64°       0.590   (lặp lại)
+ *   PHẢI      1.23 m      0.599 m      19.33°       0.552
  *
- * ⚠️ Hệ số HIỆU DỤNG: đã gộp cả trượt lốp bánh trước (khung này lái SONG
- * SONG, không phải Ackermann thật), đo trên sàn cứng với lốp hiện tại. Đổi
- * mặt sàn (thảm) hoặc thay lốp thì phải đo lại.
+ *   -> GAIN_L ≈ 0.580 ,  GAIN_R ≈ 0.552 ,  chốt TRUNG BÌNH = 0.566
  *
- * VIỆC CẦN LÀM (phiên Jetson, sau khi nạp firmware có TRIM=0.0f): chạy lại
- * vòng tròn bẻ hết lái CẢ 2 CHIỀU, đo đường kính ở TÂM TRỤC SAU, rồi fit lại
- * GAIN trên điểm gốc đúng. Cũng chỉ khi đó mới kết luận được tay đòn có thật
- * sự bất đối xứng trái/phải hay không (số liệu cũ bị trim sai làm nhiễu). */
-#define ACK_STEER_GAIN          0.597f
+ * Sai số còn lại sau khi chốt 0.566: trái −2.4%, phải +2.5% (trước đó, với
+ * 0.597: trái +2.9%, phải +8.1% — tệ nhất giảm từ 8.1% xuống 2.5%).
+ *
+ * ⚠️ BẤT ĐỐI XỨNG TRÁI/PHẢI ~5% — CÓ THẬT nhưng CHƯA tách thành 2 hằng số.
+ * Một mình số liệu thước chưa đủ chắc: nhiễu 1 phép đo ±0.018 (đo lặp 2 lần
+ * chiều trái), hiệu đo được 0.028 → chỉ 1.3 sai số chuẩn. Điều làm tin được
+ * là BA quan sát ĐỘC LẬP cùng chỉ một hướng, cùng cỡ 5-6%:
+ *   (1) cơ khí — bánh trái sát khung hơn ở cực trái (tầm lái trái xa hơn)
+ *   (2) /odom  — tốc độ xoay phải 18.8°/s vs trái 20.0°/s (chênh 6%)
+ *   (3) thước  — GAIN phải thấp hơn trái 5%
+ * Muốn tách GAIN_L/GAIN_R phải đo thêm vài lần mỗi bên (nhiễu đang lớn so với
+ * hiệu ứng). Lợi ích nhỏ: 0.566 đã kéo cả hai bên về trong ±2.5%, thừa sức cho
+ * scan matching của slam_toolbox. Để lại làm sau nếu SLAM cho thấy cần.
+ *
+ * ⚠️ Hệ số HIỆU DỤNG: đã gộp cả trượt lốp bánh trước (khung này lái SONG SONG,
+ * không phải Ackermann thật), đo trên sàn cứng với lốp hiện tại. Đổi mặt sàn
+ * (thảm) hoặc thay lốp thì phải đo lại. */
+#define ACK_STEER_GAIN          0.566f
 
 /**
  * @brief  Chuyển cmd_vel (Twist) -> lệnh phần cứng cho xe Ackermann.
