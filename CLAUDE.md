@@ -589,9 +589,63 @@ DRV8871 chỉ là H-bridge thuần (khác board Hiwonder 4-Ch cũ có MCU tự P
 
 ---
 
-## 🔴🔴🔴 VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO (ưu tiên số 1, 2026-09-05)
+## ✅ VI SAI BÁNH SAU — ĐÃ SỬA XONG TRÊN FIRMWARE (2026-09-06, phiên Windows)
 
-> **Đọc kỹ mục này trước khi làm bất cứ việc gì khác trên firmware.** Đây là kết quả một buổi đo đạc dài trên Jetson với xe thật; toàn bộ chẩn đoán đã xong, chỉ còn phần sửa firmware phải làm trên Windows.
+> **Trạng thái: đã code + verify tĩnh xong.** Còn lại duy nhất **test vòng tròn dưới sàn** (phép đo phân xử) — phải làm bên phiên Jetson vì xe cần chạy không dây. Chi tiết chẩn đoán gốc giữ nguyên bên dưới để tham khảo.
+
+### Kết quả sau khi sửa (test tĩnh, bánh nhấc khỏi đất, `linear_x=0.2`)
+
+| Trạng thái | Trái (tick/s) | Phải (tick/s) | Tỉ số đo | Tỉ số lý thuyết | Lệch |
+|---|---|---|---|---|---|
+| Đi thẳng | 2660 | 2658 | 0.999 | 1.000 | **0.1%** |
+| Cua trái (ω=+0.5) | 1916 | 3327 | **1.736** | 1.745 | **0.5%** |
+| Đi thẳng lại | 2659 | 2655 | 0.999 | 1.000 | 0.1% |
+| Cua phải (ω=−0.5) | 3324 | 1913 | **0.576** | 0.573 | **0.5%** |
+
+- Vi sai **đúng chiều** (cua trái → bánh phải nhanh hơn) và **đúng độ lớn** (lệch 0.5% so với công thức).
+- Góc servo firmware báo (+29.2° / −26.2°) khớp chính xác mô phỏng; chênh 1.5° giữa 2 chiều đúng bằng trim → góc vật lý thật ±27.7° đối xứng.
+- **PID không hề bị ảnh hưởng**: đi thẳng bám 2660 tick/s vs target 2760 (sai số 3.6%, đúng tầm sai số dư vốn có), 3 lần về thẳng đều cho tỉ số 0.999/0.999/1.004 — không dao động, không bão hoà.
+- Phạm vi sửa: **chỉ `ackermann.c`/`.h`**. `motor_pid.c`, `motor_driver.c`, `main.c` (watchdog, bypass an toàn target=0) **không đụng một dòng nào**.
+
+### ⚠️ 1 SỬA ĐỔI so với bản bàn giao từ Jetson — trim KHÔNG được đưa vào công thức vi sai
+
+Bản bàn giao ghi *"θ phải là góc lái đã tính ở bước 2 (đã cộng trim, đã clamp)"* — **chỗ này sai**, đã sửa khi cài đặt.
+
+`ACK_STEER_TRIM_DEG=1.5°` bù **lệch tâm cơ khí**: khi firmware xuất `steer_deg = 1.5°` thì bánh **đang thẳng về mặt vật lý**. Nên `steer_deg` là *lệnh servo*, không phải góc bánh thật (góc thật ≈ `steer_deg − trim`).
+
+Nếu tính vi sai từ góc đã cộng trim thì lúc **đi thẳng** (ω=0 → servo=1.5°) sẽ sinh vi sai giả `D·tan(1.5°)/2H = 1.35%` → ở 0.25 m/s tạo **góc quay ma ~0.9°/s** trong `/odom` → đi thẳng 1 phút lệch **~54°**, đủ phá SLAM. Tức là sửa xong lỗi này lại đẻ ra lỗi khác cùng loại.
+
+Trình tự đúng đã cài đặt:
+```
+θ_thật  = atan(H·ω / v)                     // góc vật lý cần có
+θ_servo = clamp(θ_thật + TRIM, ±30°)        // giá trị gửi servo
+θ_đạt   = θ_servo − TRIM                    // góc vật lý THỰC SỰ đạt (sau clamp)
+V_L = V·(1 − D·tan(θ_đạt)/2H) ; V_R = V·(1 + D·tan(θ_đạt)/2H)
+```
+Kết quả đo xác nhận: đi thẳng cho hệ số vi sai **đúng bằng 0** (tỉ số 0.999).
+
+### Đã đối chiếu trực tiếp tài liệu gốc (không tin trích dẫn gián tiếp)
+
+Đọc `reference/2 Motion Control Course/1. Kinematics Analysis.pdf` trang 6 — công thức khớp nguyên văn, và đã **tự dẫn lại độc lập** để kiểm chứng (`V_L = ω·R_L = (V/R)(R−D/2) = V(1−D/2R)`, thay `1/R = tanθ/H`). Công thức góc lái `θ = atan(H·ω/v)` cũng xác nhận đúng (trang 8, hàm `set_velocity`).
+
+**Phát hiện thêm — code thật của Hiwonder dùng dạng khác, và ta KHÔNG nên bắt chước:**
+```python
+vr = linear_speed + angular_speed * track_width/2   # dạng ω, không có tan()
+vl = linear_speed - angular_speed * track_width/2
+```
+Hai dạng **tương đương tuyệt đối về đại số** (thay `ω = V·tanθ/H` vào là ra). Nhưng ta **phải dùng dạng `tanθ`**: firmware ta **clamp** góc ở ±30°, còn Hiwonder **từ chối hẳn lệnh** nếu |θ|>37° (đặt rps=0). Nếu clamp góc mà tính vi sai từ `ω` chưa clamp → vi sai lớn hơn góc lái thực tế cho phép → lại trượt lốp, chỉ đổi chiều sai.
+
+**Thông số khung gầm Hiwonder KHÔNG nhất quán giữa chính 2 tài liệu của họ** (Kinematics: `wheelbase=0.213, track=0.222`; Motion Control trang 17: `0.216/0.195`; trang 19 còn dùng ký hiệu `D` cho wheelbase) → **dùng số đo thực của xe ta** (H=0.21, D=0.217), không lấy số của họ.
+
+### Việc còn lại (phiên Jetson)
+
+1. **Test vòng tròn** (`angular.z=1.0`, `linear.x=0.2`, ~12s): kỳ vọng đường kính giảm từ **1.45m → gần 0.73m**. Đây là phép đo phân xử — nếu không giảm rõ rệt thì giả thuyết sai, quay lại chẩn đoán.
+2. **Hiệu chuẩn lại `steering_trim_angular_z`** (hiện `−0.206`, đo trong điều kiện xe đang understeer nên gần như chắc chắn sẽ đổi).
+3. Chỉ sau khi 1-2 xong mới chạy SLAM.
+
+---
+
+## 📋 CHẨN ĐOÁN GỐC (2026-09-05, đo trên Jetson — giữ lại để tham khảo)
 
 ### Tóm tắt 1 câu
 
@@ -626,9 +680,9 @@ Firmware hiện đặt `*speed_l = *speed_r = spd`, **và PID (thêm 2026-09-05)
 
 > ❌ **Giả thuyết đã bị bác bỏ, đừng đi lại đường này**: ban đầu nghi "rơ cơ khí 7.6° (backlash)" và fit được mô hình khớp cả 3 điểm rất đẹp. Nhưng mô hình đó cần **2 tham số tự do bịa thêm** để khớp 3 điểm — khớp đẹp không có nghĩa là đúng. Cơ chế khoá vi sai giải thích mọi thứ chỉ bằng **1 cơ chế vật lý có thật**, và đã kiểm chứng bằng test tĩnh: bánh trước **đi mượt theo từng bước lệnh, về đúng vị trí cũ, không có rơ đáng kể**.
 
-### CẦN SỬA — `amr_stm32f411/Core/Src/ackermann.c`
+### ~~CẦN SỬA~~ ĐÃ SỬA — `amr_stm32f411/Core/Src/ackermann.c`
 
-Chỗ hiện tại:
+Chỗ cũ (trước 2026-09-06):
 ```c
 /* Mô hình đơn giản hóa: 2 bánh sau cùng tốc độ, chưa bù vi sai khi cua */
 int8_t spd = (int8_t)speed_f;
@@ -679,10 +733,10 @@ Cần xử lý `linear_x ≈ 0` (chia 0) — Hiwonder dùng ngưỡng `abs(linea
 
 ### Sau khi nạp firmware mới — thứ tự verify
 
-1. **Test tĩnh trước** (bánh nhấc khỏi đất): gửi `$VEL,0.2,0.5`, xác nhận qua `$ODO` rằng 2 encoder **tăng khác tốc độ**, và **bánh ngoài (phải, khi rẽ trái) nhanh hơn**. Nếu ngược → đảo dấu số hạng `D·tanθ/2H`.
-2. **Test vòng tròn** (bánh chạm đất, `angular.z=1.0`, `linear.x=0.2`, 12s): kỳ vọng đường kính giảm từ **1.45m xuống gần 0.73m**. Đây là phép đo phân xử — nếu đường kính không giảm rõ rệt thì giả thuyết sai, quay lại chẩn đoán.
-3. **Hiệu chuẩn lại `steering_trim_angular_z`** (ROS) — giá trị hiện tại `−0.206` đo trong điều kiện xe đang understeer, gần như chắc chắn sẽ đổi.
-4. Chỉ sau khi 1-3 xong mới tính tới SLAM.
+1. ✅ **Test tĩnh** (bánh nhấc khỏi đất) — **ĐÃ LÀM XONG 2026-09-06, ĐẠT**: xem bảng kết quả ở đầu mục. Vi sai đúng chiều, lệch 0.5% so với lý thuyết, dấu không cần đảo.
+2. ⏳ **Test vòng tròn** (bánh chạm đất) — **CHƯA LÀM**, để phiên Jetson (xe cần chạy không dây, cáp CP2102 từ Windows vướng).
+3. ⏳ **Hiệu chuẩn lại `steering_trim_angular_z`** — chưa làm, phải sau bước 2.
+4. Chỉ sau khi 2-3 xong mới tính tới SLAM.
 
 ### Phía ROS đã chuẩn bị sẵn, KHÔNG cần sửa gì thêm
 
@@ -774,7 +828,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 - [x] `amr_slam/launch/slam.launch.py` — 4 node: serial_driver, sllidar, slam_toolbox, static_tf
   - LiDAR offset tạm thời: `base_link → laser_frame` x=0.15m, z=0.10m (cần đo lại sau khi lắp)
 - [x] `colcon build --packages-select amr_slam` — 0 errors
-- [ ] ⛔ **CHƯA CHẠY ĐƯỢC** — `/odom` hiện MÙ VỀ HƯỚNG (xoay thật 22.6°, odom báo ~0) do firmware khoá vi sai 2 bánh sau. LiDAR sẽ thấy xe xoay trong khi odom bảo đi thẳng → scan matching mâu thuẫn → bản đồ hỏng (tường nhân đôi). **Phải sửa firmware trước** — xem "VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO" ở Giai đoạn 2.
+- [ ] ⏳ **CHƯA CHẠY** — firmware đã có vi sai bánh sau (2026-09-06, verify tĩnh đạt) nên `/odom` **sẽ tự có hướng** qua `dtheta=(dr−dl)/track_width` mà không cần sửa gì bên ROS. Nhưng **phải test vòng tròn dưới sàn xác nhận trước** (kỳ vọng Ø1.45m → ~0.73m) rồi hiệu chuẩn lại trim, mới chạy SLAM — xem mục "VI SAI BÁNH SAU — ĐÃ SỬA XONG" ở Giai đoạn 2.
 - [ ] Chạy thực tế: `ros2 launch amr_slam slam.launch.py` và kiểm tra `/map`
 - [ ] Lưu bản đồ `.yaml` + `.pgm` (`ros2 run nav2_map_server map_saver_cli`)
 
@@ -791,6 +845,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 - Chiều motor: bánh phải **đảo dấu** trong `DRV_Motor_SetSpeed()` cho wiring DRV8871 hiện tại (xác nhận thực nghiệm 2026-08-19 bằng quan sát trực tiếp) — quy ước dấu KHÔNG cố định qua các lần đấu dây lại, luôn đo/quan sát lại sau mỗi lần đấu mới
 - **✅ Giật cục motor: ĐÃ GIẢI QUYẾT DỨT ĐIỂM (2026-09-05)** — nguyên nhân thật là **bug tràn số unsigned trong watchdog `$VEL`** ở `main.c`, không phải dây lỏng/driver/CH340 như nghi suốt nhiều tháng. Xem mục "🔴 Bug watchdog tràn số" ở Giai đoạn 2. Các nghi vấn dây M+/M- trước đây có thể đã góp phần nhưng KHÔNG phải nguyên nhân chính.
 - **Điều khiển tốc độ: closed-loop PID (PI) từ 2026-09-05** — `motor_pid.c/h` + `DRV_Motor_UpdatePID()` chạy mỗi 10ms. `MAX_TICKS_PER_INTERVAL=69` (đo thực nghiệm), `Kp=1.5`, `Ki=8.0` (đã verify 30s, sai số bám ~2%). Bỏ khâu D (tick encoder rời rạc → đạo hàm chỉ khuếch đại nhiễu).
+- **Vi sai 2 bánh sau + góc lái theo vận tốc (2026-09-06)** — `ackermann.c` dùng `V_L,R = V·(1 ∓ D·tanθ/2H)` (D=0.217, H=0.21) và `θ = atan(H·ω/v)` thay hằng số `K_ANGULAR_TO_DEG=30` cũ (chỉ đúng tại v≈0.4 m/s). **Góc tính vi sai phải TRỪ trim** (trim là bù lệch tâm cơ khí, không phải góc bánh thật) — nếu không, đi thẳng sinh vi sai giả 1.35% → `/odom` quay ma 0.9°/s. `K_ANGULAR_TO_DEG` chỉ còn dùng cho nhánh `v≈0` (chỉnh trước góc lái khi test bàn). Verify tĩnh đạt, **test vòng tròn dưới sàn chưa làm**.
 - Jetson ↔ STM32: custom UART ASCII protocol, USART2 (PA2/PA3), 115200 baud
 - GND nối kiểu **star qua thanh terminal block riêng** (không daisy-chain qua chân board công suất) — bắt buộc từ sau sự cố hỏng 2 board F446, xem `docs/wiring-f411.html`
 - Gear ratio motor: 90:1, dòng stall thực tế ~2.3A (quan trọng khi chọn driver thay thế)
