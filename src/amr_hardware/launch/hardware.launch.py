@@ -85,7 +85,24 @@ def generate_launch_description():
                 # và tham số này) — nên gộp về 1 chỗ. Sửa firmware cần nạp lại
                 # từ máy Windows nên tạm giữ nguyên; số -0.206 đã tính CẢ phần
                 # +1.5 của firmware nên hệ thống vẫn đi thẳng đúng.
-                'steering_trim_angular_z': -0.206,
+                # ⚠️ ĐẶT VỀ 0 TỪ 2026-09-06 — KHÔNG phải "chưa hiệu chuẩn",
+                # mà vì trim tính bằng rad/s ĐÃ MẤT TÁC DỤNG về nguyên tắc.
+                # Firmware mới dùng theta = atan(H*w/v), nên một lượng trim
+                # rad/s cố định cho ra góc lái KHÁC NHAU theo tốc độ — trong
+                # khi lệch tâm cơ khí là một GÓC KHÔNG ĐỔI. Đo xác nhận
+                # (bánh nhấc, lệnh đi thẳng, trim cũ -0.206):
+                #     v=0.15 -> steer -14.9 deg, 2 bánh lệch 27%
+                #     v=0.20 -> steer -10.9 deg, 2 bánh lệch 21%
+                #     v=0.30 -> steer  -6.9 deg, 2 bánh lệch 14%
+                # (lẽ ra phải là -4.8 deg và 0% ở MỌI tốc độ)
+                #
+                # Cách sửa ĐÚNG nằm ở firmware: `ACK_STEER_TRIM_DEG` hiện là
+                # +1.5 nhưng đo thực tế cho thấy bánh thẳng khi servo ở -4.8
+                # -> phải đổi thành -4.8. Khi đó trim nằm gọn 1 chỗ (đúng
+                # quyết định đã ghi trong CLAUDE.md) và tham số này giữ 0
+                # vĩnh viễn. CHƯA làm được vì cần phiên Windows để nạp.
+                # Trong lúc chờ: xe đi thẳng còn lệch trái ~6.3 deg.
+                'steering_trim_angular_z': 0.0,
                 # Dấu encoder — ĐO THỰC NGHIỆM trên Jetson (2026-09-05) với
                 # wiring DRV8871 hiện tại: gửi lệnh tiến, quan sát $ODO thấy
                 # enc_l chạy ÂM (0 -> -4543) còn enc_r chạy DƯƠNG (0 -> +4518),

@@ -637,11 +637,84 @@ Hai dạng **tương đương tuyệt đối về đại số** (thay `ω = V·t
 
 **Thông số khung gầm Hiwonder KHÔNG nhất quán giữa chính 2 tài liệu của họ** (Kinematics: `wheelbase=0.213, track=0.222`; Motion Control trang 17: `0.216/0.195`; trang 19 còn dùng ký hiệu `D` cho wheelbase) → **dùng số đo thực của xe ta** (H=0.21, D=0.217), không lấy số của họ.
 
-### Việc còn lại (phiên Jetson)
+### ✅ Test vòng tròn ĐÃ LÀM XONG (Jetson, 2026-09-06) — vi sai chạy đúng
 
-1. **Test vòng tròn** (`angular.z=1.0`, `linear.x=0.2`, ~12s): kỳ vọng đường kính giảm từ **1.45m → gần 0.73m**. Đây là phép đo phân xử — nếu không giảm rõ rệt thì giả thuyết sai, quay lại chẩn đoán.
-2. **Hiệu chuẩn lại `steering_trim_angular_z`** (hiện `−0.206`, đo trong điều kiện xe đang understeer nên gần như chắc chắn sẽ đổi).
-3. Chỉ sau khi 1-2 xong mới chạy SLAM.
+**Vi sai có tác dụng lớn, xác nhận giả thuyết gốc:**
+
+| | Bán kính cua | Góc lái hiệu dụng | Hệ số understeer |
+|---|---|---|---|
+| Trước (khoá vi sai) | **1.45 m** | 8.2° | 3.99 |
+| Sau (có vi sai) | **0.55 m** | 20.9° | 1.82 |
+
+Bán kính thu **2.6 lần**, hệ số understeer giảm hơn một nửa.
+
+> ⚠️ **Bẫy đơn vị đã suýt dẫn tới kết luận sai — ghi lại để tránh lặp:** số "1.45m" ngày 2026-09-05 là **BÁN KÍNH**, còn "1.10m" ngày 2026-09-06 là **ĐƯỜNG KÍNH**. Lúc đầu so nhầm hai đại lượng khác nhau → kết luận sai rằng "vi sai chỉ cải thiện 8%, không phải nguyên nhân chính". **Luôn hỏi lại đơn vị trước khi so hai phép đo của hai buổi khác nhau.**
+
+### 🔬 HIỆU CHUẨN TỈ SỐ TRUYỀN LÁI — phát hiện mới, đã verify 3 điểm (2026-09-06)
+
+Sau khi có vi sai, vẫn còn understeer hệ số 1.82. Truy tiếp bằng 2 test vòng tròn ở **2 góc lái khác nhau**, ra một mô hình tuyến tính khớp rất chặt:
+
+```
+góc_bánh_THẬT = 0.597 × (steer_deg + 4.8)
+```
+
+| servo `steer_deg` | Đường kính đo | Bán kính | Góc bánh thật | Hệ số suy ra |
+|---|---|---|---|---|
+| −4.8° | (xe đi thẳng) | ∞ | 0° | — (điểm gốc) |
+| +22.2° | 1.46 m | 0.730 m | 16.05° | **0.594** |
+| +30.0° | 1.10 m | 0.550 m | 20.90° | **0.601** |
+
+Hai phép đo độc lập ở 2 góc khác nhau cho hệ số lệch nhau **chỉ 1%** → mô hình tuyến tính, đáng tin.
+
+**Ý nghĩa:** bánh xe chỉ quay được **~60%** góc mà servo quay. Đây là **tỉ số truyền tay đòn lái** (chiều dài cánh tay servo so với cánh tay lái), cộng thêm phần trượt lốp bánh trước do khung này lái **song song** chứ không phải Ackermann thật (tài liệu Hiwonder trang 2: *"the two wheels are in a parallel state"*). Không tách riêng được 2 thành phần, cũng không cần — cứ hiệu chuẩn gộp là đủ.
+
+⚠️ Đây là hệ số **hiệu dụng** đo trên sàn cứng với lốp hiện tại, đã gộp cả trượt lốp. Đổi mặt sàn (thảm) hoặc thay lốp thì phải đo lại.
+
+**Và `ACK_STEER_TRIM_DEG = 1.5` là SAI.** Đo thực tế: xe đi thẳng khi `steer_deg = −4.8°`, không phải +1.5°. Trước đây trim ROS `−0.206` che được sai số này, nhưng sau khi đổi sang `θ = atan(H·ω/v)` thì **không che được nữa** — trim tính bằng rad/s cho ra góc **phụ thuộc tốc độ**, trong khi lệch tâm cơ khí là **góc không đổi**. Đo xác nhận (bánh nhấc, lệnh đi thẳng, trim ROS −0.206):
+
+| v (m/s) | `steer_deg` báo về | Lệch tốc độ 2 bánh sau |
+|---|---|---|
+| 0.15 | −14.9° | 27% |
+| 0.20 | −10.9° | 21% |
+| 0.30 | −6.9° | 14% |
+
+(lẽ ra phải là −4.8° và **0%** ở mọi tốc độ). `steering_trim_angular_z` đã đặt về **0** bên ROS, chờ firmware sửa.
+
+### 🔴 VIỆC CẦN LÀM Ở PHIÊN WINDOWS TIẾP THEO
+
+Sửa `ackermann.c` / `ackermann.h` — **2 hằng số + áp dụng theo cả 2 chiều**:
+
+```c
+#define ACK_STEER_TRIM_DEG   -4.8f   /* was +1.5f — đo thực tế, xem bảng trên */
+#define ACK_STEER_GAIN        0.597f /* tỉ số truyền tay đòn lái, verify 3 điểm */
+```
+
+```c
+/* 1. Góc lái VẬT LÝ mong muốn (giữ nguyên) */
+theta_phys = atan(H*w/v) * RAD_TO_DEG;
+
+/* 2. Đổi sang lệnh servo: chia GAIN rồi mới cộng trim */
+servo_deg = theta_phys / ACK_STEER_GAIN + ACK_STEER_TRIM_DEG;
+clamp(servo_deg, ±ACK_MAX_STEER_DEG);
+
+/* 3. Góc vật lý THỰC SỰ đạt (sau clamp) — dùng cho vi sai */
+theta_ach = (servo_deg - ACK_STEER_TRIM_DEG) * ACK_STEER_GAIN;
+```
+
+Kiểm tra nhanh: `theta_phys=0` → `servo=−4.8` (đúng vị trí xe đi thẳng) → `theta_ach=0` → vi sai `k=0` ✓
+
+**Lợi ích:** với `theta_ach` là góc bánh THẬT, `/odom` tự đúng theo. Đối chiếu với số đo:
+
+| servo | `/odom` sẽ báo | Thực tế đo | Lệch |
+|---|---|---|---|
+| +22.2° | 15.8 °/s | 15.7 °/s | **0.5%** |
+| +30.0° | 20.7 °/s | 20.8 °/s | **0.6%** |
+
+(hiện tại, khi chưa có GAIN, `/odom` báo thừa **1.54 lần** — 32°/s so với thực 20.8°/s)
+
+**Lưu ý phụ:** clamp đang áp lên **lệnh servo**. Với `GAIN=0.597`, servo ±30° chỉ cho góc bánh thật ±20.9° → **bán kính cua nhỏ nhất 0.55m**. Nếu Nav2 cần cua gắt hơn thì phải nới `ACK_MAX_STEER_DEG`, nhưng **phải thử tay trước** xem tay đòn có bị kẹt cơ khí không.
+
+**Sau khi nạp firmware mới, phía Jetson cần:** chạy lại test vòng tròn xác nhận `/odom` khớp thực tế, kiểm tra xe đi thẳng đúng khi `angular.z=0`, rồi mới chạy SLAM. `steering_trim_angular_z` giữ **0** vĩnh viễn (trim gộp về 1 chỗ trong firmware — đúng quyết định đã ghi từ trước).
 
 ---
 
@@ -828,7 +901,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 - [x] `amr_slam/launch/slam.launch.py` — 4 node: serial_driver, sllidar, slam_toolbox, static_tf
   - LiDAR offset tạm thời: `base_link → laser_frame` x=0.15m, z=0.10m (cần đo lại sau khi lắp)
 - [x] `colcon build --packages-select amr_slam` — 0 errors
-- [ ] ⏳ **CHƯA CHẠY** — firmware đã có vi sai bánh sau (2026-09-06, verify tĩnh đạt) nên `/odom` **sẽ tự có hướng** qua `dtheta=(dr−dl)/track_width` mà không cần sửa gì bên ROS. Nhưng **phải test vòng tròn dưới sàn xác nhận trước** (kỳ vọng Ø1.45m → ~0.73m) rồi hiệu chuẩn lại trim, mới chạy SLAM — xem mục "VI SAI BÁNH SAU — ĐÃ SỬA XONG" ở Giai đoạn 2.
+- [ ] ⏳ **CHƯA CHẠY** — test vòng tròn đã làm xong (2026-09-06): vi sai chạy đúng, bán kính cua 1.45m → 0.55m. Nhưng `/odom` vẫn báo hướng **thừa 1.54 lần** vì firmware chưa biết tỉ số truyền tay đòn lái (`góc bánh thật = 0.597 × (steer_deg + 4.8)`, đã verify 3 điểm). **Phải nạp firmware có `ACK_STEER_GAIN` + trim đúng trước** — khi đó `/odom` khớp thực tế trong 0.6%. Xem "HIỆU CHUẨN TỈ SỐ TRUYỀN LÁI" ở Giai đoạn 2.
 - [ ] Chạy thực tế: `ros2 launch amr_slam slam.launch.py` và kiểm tra `/map`
 - [ ] Lưu bản đồ `.yaml` + `.pgm` (`ros2 run nav2_map_server map_saver_cli`)
 
