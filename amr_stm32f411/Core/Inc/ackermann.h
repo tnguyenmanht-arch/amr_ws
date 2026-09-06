@@ -18,19 +18,34 @@ extern "C" {
  * tưởng góc servo = góc bánh. Từ khi biết ACK_STEER_GAIN thì phải tách. =====
  * Code áp dụng CẢ HAI, cái nào chạm trước thì cái đó chặn. */
 
-/* (a) Giới hạn LỆNH gửi servo — chỉ là trần kỹ thuật, KHÔNG phải cữ cơ khí.
- * Bản thân servo đi được ±120° (vị trí 0..1000, xem servo_buslinker.h), nên
- * con số ở đây rộng rãi thoải mái. Ràng buộc thật nằm ở (b). */
+/* (a) ⭐ GIỚI HẠN ĐANG DÙNG THẬT — mức an toàn do user tự chọn khi test servo.
+ *
+ * ĐÂY KHÔNG PHẢI ĐIỂM CHẠM. User đã xác minh bằng mắt (2026-09-06, chiều):
+ * ở lệnh servo ±35° bánh vẫn còn hở khung **5mm**, cả 2 bên như nhau, chạy
+ * thoải mái không sao. Điểm chạm thật nằm đâu đó XA HƠN 35° — chưa ai dò tới,
+ * và cũng không cần: 35° đã đủ dùng, còn 5mm dự phòng cho rung/xóc.
+ *
+ * Nếu sau này muốn cua gắt hơn nữa thì nới SỐ NÀY (không phải nới (b)), và
+ * phải nhìn lại khe hở bằng mắt ở giá trị mới trước khi chạy tự động.
+ *
+ * Bản thân servo đi được ±120° (vị trí 0..1000, xem servo_buslinker.h) nên
+ * phần cứng không phải là thứ chặn ở đây. */
 #define ACK_MAX_SERVO_DEG       35.0f
 
-/* (b) ⭐ GIỚI HẠN THẬT SỰ CỦA HỆ THỐNG LÁI: góc bánh trước trước khi BÁNH
- * CHẠM KHUNG XE. Quan sát trực tiếp 2026-09-06: ở góc bánh 15.04° bánh đã
- * "sắp chạm" khung → cữ thật nằm rất gần đó, KHÔNG phải 30° như bản trước
- * ghi (số 30 đó chưa hề được đo, đặt quá lỏng nên vô tác dụng).
- * ⚠️ ĐANG Ở CHẾ ĐỘ ĐO: đặt 18.0 để dò xem chạm ở đâu, phải chỉnh lại xuống
- * giá trị an toàn (điểm chạm TRỪ ~2° dự phòng cho rung/xóc/nén lốp/rơ lái)
- * ngay sau khi đo xong. KHÔNG để 18.0 khi chạy tự động. */
-#define ACK_MAX_WHEEL_DEG       18.0f
+/* (b) Chốt chặn phụ theo GÓC BÁNH — cố ý để RỘNG, hiện KHÔNG bind.
+ *
+ * Lý do: giới hạn thật đang được đặt ở PHÍA SERVO (mục (a)) — đó là nơi user
+ * quan sát trực tiếp được khe hở bánh↔khung. Nếu đặt giới hạn ở phía bánh thì
+ * phải quy đổi qua ACK_STEER_GAIN, mà GAIN nay đã biết là CHƯA ĐÁNG TIN (fit
+ * trên điểm gốc trim sai 4.8°) → giới hạn sẽ sai theo hệ số sai.
+ *
+ * ⚠️ Con số "bánh 18.03°" ghi ở các bản trước KHÔNG phải số đo — nó chính là
+ * servo 35° quy đổi qua GAIN. Đừng dùng nó như một phép đo cơ khí.
+ *
+ * Giá trị dưới đây rộng hơn mức servo ±35° có thể sinh ra (35 × 0.597 ≈ 20.9°)
+ * nên (a) là cái bind. Nó chỉ còn vai trò lưới an toàn phòng khi GAIN được
+ * hiệu chuẩn lại thành giá trị lớn bất thường. */
+#define ACK_MAX_WHEEL_DEG       25.0f
 
 /* Ngưỡng coi như "đứng yên": dưới mức này không suy được góc lái từ (ω, v)
  * vì công thức atan(H·ω/v) chia cho 0. Xem xử lý trong ackermann.c. */
