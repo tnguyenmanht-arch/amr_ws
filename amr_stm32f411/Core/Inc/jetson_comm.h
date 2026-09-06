@@ -54,7 +54,9 @@ void APP_Comm_Parse(void);
  * @brief  Gửi gói odometry lên Jetson qua UART2 (blocking).
  * @param  enc_l      Xung encoder bánh trái  (int32, tích lũy)
  * @param  enc_r      Xung encoder bánh phải (int32, tích lũy)
- * @param  steer_deg  Góc lái hiện tại (độ); dương = phải, âm = trái
+ * @param  steer_deg  LỆNH servo hiện tại (độ); dương = TRÁI, âm = PHẢI.
+ *                   ⚠️ Là lệnh servo, KHÔNG phải góc bánh thật (xem
+ *                   ACK_STEER_GAIN/ACK_STEER_TRIM_DEG trong ackermann.h).
  */
 void APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg);
 

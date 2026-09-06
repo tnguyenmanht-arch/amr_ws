@@ -8,7 +8,11 @@
 /* Hệ số quy đổi tuyến tính CŨ (rad/s -> độ), CHỈ còn dùng cho trường hợp xe
  * đứng yên (v ≈ 0) — lúc đó công thức đúng atan(H·ω/v) chia cho 0.
  * Giữ lại để vẫn chỉnh trước được góc lái khi test trên bàn ($VEL,0,ω),
- * KHÔNG dùng cho lúc xe đang chạy. */
+ * KHÔNG dùng cho lúc xe đang chạy.
+ * ⚠️ Từ 2026-09-06 hằng số này mang đơn vị ĐỘ GÓC BÁNH (không phải độ lệnh
+ * servo như trước), để đồng nhất đơn vị với nhánh atan(). Hệ quả trên bàn:
+ * cùng một ω sẽ cho ra lệnh servo KHÁC trước, và ω ≥ 0.5 đều bão hoà ở giới
+ * hạn ±15.0° — đúng khả năng thật của cơ cấu, không phải lỗi. */
 #define K_ANGULAR_TO_DEG    30.0f
 
 void CALC_Ackermann(float linear_x, float angular_z,
@@ -21,45 +25,59 @@ void CALC_Ackermann(float linear_x, float angular_z,
     if (speed_f >  100.0f) speed_f =  100.0f;
     if (speed_f < -100.0f) speed_f = -100.0f;
 
-    /* ---- 2. Góc lái VẬT LÝ cần có ----
+    /* ---- 2. Góc BÁNH XE vật lý cần có (độ) ----
      * Mô hình xe đạp: ω = (v/H)·tanθ  =>  θ = atan(H·ω / v).
      * Công thức này TỰ ĐÚNG cho cả lúc lùi (v<0): khi lùi, muốn thân xe quay
      * cùng chiều thì phải đánh lái ngược lại — phép chia có dấu lo việc đó. */
-    float theta_phys_deg;
+    float theta_deg;
     if (fabsf(linear_x) < ACK_MIN_SPEED_MS) {
         /* Đứng yên: không suy được góc lái từ (ω, v). Xe Ackermann cũng vốn
          * KHÔNG quay tại chỗ được, nên đây chỉ là chế độ "chỉnh trước góc lái"
-         * dùng khi test trên bàn — giữ nguyên cách quy đổi tuyến tính cũ để
-         * không phá các bài test servo đang có. Bánh sau vẫn đứng yên vì
-         * speed_f = 0. */
-        theta_phys_deg = angular_z * K_ANGULAR_TO_DEG;
+         * dùng khi test trên bàn. Bánh sau vẫn đứng yên vì speed_f = 0. */
+        theta_deg = angular_z * K_ANGULAR_TO_DEG;
     } else {
-        theta_phys_deg = atanf(ACK_WHEELBASE_M * angular_z / linear_x) * RAD_TO_DEG;
+        theta_deg = atanf(ACK_WHEELBASE_M * angular_z / linear_x) * RAD_TO_DEG;
     }
 
-    /* ---- 3. Cộng bù lệch cơ khí -> lệnh gửi servo, clamp theo giới hạn ---- */
-    float servo_deg = theta_phys_deg + ACK_STEER_TRIM_DEG;
-    if (servo_deg >  ACK_MAX_STEER_DEG) servo_deg =  ACK_MAX_STEER_DEG;
-    if (servo_deg < -ACK_MAX_STEER_DEG) servo_deg = -ACK_MAX_STEER_DEG;
-    *steer_deg = servo_deg;
+    /* ---- 3. Giới hạn góc bánh, ĐỐI XỨNG 2 CHIỀU, theo CẢ HAI ràng buộc ----
+     * (a) Từ giới hạn LỆNH SERVO: tâm servo lệch (TRIM = −4.8°) nên cùng biên
+     *     ±ACK_MAX_SERVO_DEG lại cho ra 2 góc bánh khác nhau (+20.8° / −15.0°).
+     *     Lấy phía HẸP HƠN làm chung cho cả 2 chiều -> xe cua trái/phải như
+     *     nhau, và lệnh servo chắc chắn nằm gọn trong ±ACK_MAX_SERVO_DEG.
+     * (b) Từ giới hạn GÓC BÁNH (bánh chạm khung): ACK_MAX_WHEEL_DEG.
+     * Lấy cái NHỎ HƠN. Hiện (a) chặn trước (15.0° < 30°); khi nào nới được
+     * ACK_MAX_SERVO_DEG thì (b) tự động thành chốt chặn mà không phải sửa code.
+     * Tính tại đây thay vì hardcode để tự đúng lại nếu đổi TRIM/GAIN/giới hạn. */
+    float lim_l = ( ACK_MAX_SERVO_DEG - ACK_STEER_TRIM_DEG) * ACK_STEER_GAIN;
+    float lim_r = (-ACK_MAX_SERVO_DEG - ACK_STEER_TRIM_DEG) * ACK_STEER_GAIN;
+    float lim   = fminf(fabsf(lim_l), fabsf(lim_r));
+    if (lim > ACK_MAX_WHEEL_DEG) lim = ACK_MAX_WHEEL_DEG;
+    if (theta_deg >  lim) theta_deg =  lim;
+    if (theta_deg < -lim) theta_deg = -lim;
 
-    /* ---- 4. Góc VẬT LÝ thực sự đạt được, để tính vi sai ----
-     * ⚠️ PHẢI TRỪ LẠI TRIM. `servo_deg` là LỆNH gửi servo, không phải góc bánh
-     * thật: trim bù lệch tâm cơ khí, nên khi lệnh = trim thì bánh đang THẲNG.
-     * Nếu lấy thẳng servo_deg để tính vi sai, lúc đi thẳng (ω=0 -> servo=1.5°)
-     * sẽ sinh vi sai giả 1.35% -> /odom báo quay ma ~0.9°/s -> đi thẳng 1 phút
-     * lệch ~54°, đủ phá SLAM. Cũng phải lấy góc SAU clamp, để vi sai luôn khớp
-     * với góc lái thật sự đạt được (khác Hiwonder: họ từ chối lệnh khi quá
-     * giới hạn, ta clamp nên phải tự đồng bộ lại). */
-    float theta_ach_rad = (servo_deg - ACK_STEER_TRIM_DEG) * DEG_TO_RAD;
+    /* ---- 4. Góc bánh -> LỆNH servo ----
+     * Đảo ngược quan hệ đã hiệu chuẩn  θ = GAIN·(servo − TRIM):
+     *     servo = θ/GAIN + TRIM
+     * Kiểm tra nhanh: θ=0 -> servo = TRIM = −4.8° = đúng vị trí bánh thẳng. */
+    float servo_deg = theta_deg / ACK_STEER_GAIN + ACK_STEER_TRIM_DEG;
+
+    /* Chốt an toàn cuối cùng bảo vệ tay đòn lái. Sau bước 3 thì về lý thuyết
+     * không bao giờ chạm tới, nhưng giới hạn cơ khí thì luôn nên có 2 lớp. */
+    if (servo_deg >  ACK_MAX_SERVO_DEG) servo_deg =  ACK_MAX_SERVO_DEG;
+    if (servo_deg < -ACK_MAX_SERVO_DEG) servo_deg = -ACK_MAX_SERVO_DEG;
+    *steer_deg = servo_deg;
 
     /* ---- 5. Vi sai 2 bánh sau (Kinematics Analysis.pdf trang 6) ----
      *   V_L = V·(1 − D·tanθ/2H)   ,   V_R = V·(1 + D·tanθ/2H)
+     * ⚠️ θ ở đây PHẢI là góc BÁNH THẬT — `theta_deg` đã đúng nghĩa đó (đã
+     * clamp ở bước 3, và không dính TRIM vì TRIM chỉ là bù lệch tâm của LỆNH
+     * servo, không phải góc bánh). Nếu lỡ dùng `servo_deg` thì lúc đi thẳng
+     * (θ=0 -> servo=−4.8°) sẽ sinh vi sai giả ~4.3% -> /odom báo quay ma ->
+     * đi thẳng vài chục giây là lệch đủ để phá SLAM.
      * Dấu khớp sẵn với quy ước của ta (θ dương = rẽ TRÁI): khi rẽ trái, bánh
-     * PHẢI là bánh ngoài nên phải quay nhanh hơn -> V_R > V_L. ⚠️ Vẫn phải
-     * xác nhận lại bằng thực nghiệm sau khi nạp (bài học lặp lại nhiều lần
-     * trong dự án: không tin suy luận dấu trên giấy). */
-    float k  = (ACK_TRACK_WIDTH_M * tanf(theta_ach_rad)) / (2.0f * ACK_WHEELBASE_M);
+     * PHẢI là bánh ngoài nên quay nhanh hơn -> V_R > V_L (đã xác nhận thực
+     * nghiệm 2026-09-06: cua trái tỉ số P/T = 1.736 vs lý thuyết 1.745). */
+    float k  = (ACK_TRACK_WIDTH_M * tanf(theta_deg * DEG_TO_RAD)) / (2.0f * ACK_WHEELBASE_M);
     float vl = speed_f * (1.0f - k);
     float vr = speed_f * (1.0f + k);
 
