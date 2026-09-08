@@ -41,10 +41,34 @@ def generate_launch_description():
                 #   - ticks_per_rev = 44 * 90 = 3960: số nguyên, suy ra từ
                 #     phần cứng (11 PPR datasheet x 4 cạnh quadrature do TIM
                 #     chạy Encoder Mode TI12 x gear 90:1). Không phải số dò.
-                #   - wheel_radius = 0.049: BÁN KÍNH LĂN HIỆU DỤNG, nhỏ hơn
-                #     bán kính danh nghĩa 50mm ~1mm do lốp bị nén dưới tải +
-                #     trượt nhẹ khi tăng tốc. Đây mới là đại lượng cần hiệu
-                #     chuẩn thực nghiệm.
+                #   - wheel_radius = 0.050: BÁN KÍNH HÌNH HỌC THẬT. Bánh
+                #     Ø100mm, nhựa CỨNG, không biến dạng dưới tải.
+                #
+                # 🔴 SỬA 2026-09-07: giá trị cũ 0.049 là SAI, kèm lời biện
+                # minh SAI ("lốp nén dưới tải"). Bánh cứng thì không nén được
+                # -> cơ chế đó không tồn tại. 0.049 thực chất được suy ngược
+                # từ MỘT phép đo thô: 21864 tick / 3960 = 5.521 vòng, r=0.050
+                # cho ra 1.735m, nhưng lần đó đo "áng chừng vì không có thước
+                # chuẩn" ra ~1.70m (±3cm tự khai). Thay vì kết luận phép đo
+                # lệch 3.5cm (nằm trong sai số đã tự khai), lại HẠ HẰNG SỐ
+                # PHẦN CỨNG xuống cho khớp số đo nhiễu.
+                #
+                # Đo lại bằng thước thật 2026-09-07 (2 lần, 0.15 m/s):
+                #     thước 1.280 / 1.265 m  -> trung bình 1.2725 m
+                #     /odom voi r=0.049      -> 1.2415 m   sai -2.4%
+                #     /odom voi r=0.050      -> 1.2668 m   sai -0.45%
+                # Sai lệch 2.4% biến mất khi dùng bán kính hình học đúng.
+                #
+                # ⭐ Lập luận vật lý quyết định (user chỉ ra): với bánh CỨNG,
+                # trượt chỉ làm xe đi ÍT hơn số vòng bánh quay, nên bán kính
+                # hiệu dụng luôn <= 0.050, KHÔNG BAO GIỜ vượt. Số đo hôm nay
+                # suy ra 0.0502 -> trượt ~0, phần dôi 0.4% là sai số thước.
+                # Còn 0.049 đòi hỏi 2% trượt thường trực — bánh cứng trên sàn
+                # cứng không tạo ra được.
+                #
+                # ⚠️ Bài học lặp lại: đừng chỉnh HẰNG SỐ PHẦN CỨNG (suy được
+                # từ hình học/datasheet) để fit một phép đo nhiễu. Chỉ chỉnh
+                # đại lượng thật sự chưa biết.
                 #
                 # ĐO THỰC NGHIỆM (2026-09-05, bánh chạm đất, chạy thẳng 8s
                 # @0.2m/s): delta tick trung bình 2 bánh = 21864 (lệch trái/
@@ -57,7 +81,7 @@ def generate_launch_description():
                 # đo lại vài lần ở quãng >2m khi có thước để tinh chỉnh
                 # wheel_radius (chỉ cần sửa MỖI số này, ticks_per_rev giữ
                 # nguyên 3960 vì là hằng số phần cứng).
-                'wheel_radius':    0.049,
+                'wheel_radius':    0.050,
                 'wheel_base':      0.21,
                 'encoder_ppr':     44.0,   # 11 PPR x 4 cạnh quadrature (TI12)
                 'gear_ratio':      90.0,

@@ -331,7 +331,7 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 
 ### ✅ Giai đoạn 1 — Nền tảng & Môi trường: HOÀN THÀNH
 - [x] GitHub repo tạo xong, toàn bộ code push lên
-- [x] SSH Windows → Jetson hoạt động (IP `192.168.22.105`, user `nmt`)
+- [x] SSH Windows → Jetson hoạt động (IP `192.168.1.5` (DHCP, WiFi "TTTB" — số cũ 192.168.22.105 đã lỗi thời, kiểm tra lại bằng `ip -4 addr`), user `nmt`)
 - [x] Ubuntu 22.04 + ROS2 Humble cài trên Jetson Orin Nano
 - [x] `colcon build` → 7 packages finished, 0 errors
 - [x] URDF mô tả robot (amr_description)
@@ -995,7 +995,7 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 
 ### 🔧 Giai đoạn 3 — ROS2 Hardware Nodes: ĐANG TRIỂN KHAI
 - [x] `serial_driver_node` (`amr_hardware`) đã có sẵn khung ROS2 tốt: sub `/cmd_vel`, pub `/odom` + TF `odom→base_link`, công thức odometry differential-drive, tham số khớp xe thật
-- [x] **Hiệu chuẩn lại toàn bộ odometry trên phần cứng hiện tại (2026-09-05, F411#4+DRV8871+PID)** — xem mục chi tiết bên dưới. Giá trị chốt: `wheel_radius=0.049`, `encoder_ppr=44.0` × `gear_ratio=90` → `ticks_per_rev=3960`, `track_width=0.217`, `left_encoder_sign=-1.0`, `steering_trim_angular_z=-0.206`
+- [x] **Hiệu chuẩn lại toàn bộ odometry trên phần cứng hiện tại (2026-09-05, F411#4+DRV8871+PID)** — xem mục chi tiết bên dưới. Giá trị chốt: `wheel_radius=0.050` (sửa 2026-09-07, xem bên dưới), `encoder_ppr=44.0` × `gear_ratio=90` → `ticks_per_rev=3960`, `track_width=0.217`, `left_encoder_sign=-1.0`, `steering_trim_angular_z=-0.206`
 - [x] **`SerialDriver` đã viết lại sang ASCII line-based** (`serial_driver.hpp`/`stm32_comm.cpp`), khớp firmware `$VEL`/`$ODO`:
   + `sendCmdVel`: build `"$VEL,%.2f,%.2f\n"` rồi `write()`
   + `readOdom`: gom byte tới `'\n'`, `sscanf("$ODO,%ld,%ld,%f")`, bỏ state machine header/CRC nhị phân cũ
@@ -1029,7 +1029,38 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 
 **Bug 2 — hai lỗi sai bù trừ nhau trong calibration cũ:** `wheel_radius=0.10` thực ra là **ĐƯỜNG KÍNH** bị ghi nhầm thành bán kính (bánh thật Ø100mm → bán kính 0.05m). `encoder_ppr=87.61` khi đó phải **gấp đôi** giá trị thật để bù lại, nên `/odom` vẫn ra đúng quãng đường — chỉ **tích** `2πr/ticks_per_rev` là được hiệu chuẩn thật, từng hằng số riêng đều sai. Tham số hoá lại tách bạch:
 - `encoder_ppr=44.0` × `gear_ratio=90` → **`ticks_per_rev=3960`**: SỐ NGUYÊN CHÍNH XÁC suy từ phần cứng (11 PPR datasheet × **4 cạnh quadrature** do TIM chạy Encoder Mode TI12 × gear 90:1). Không phải số dò.
-- **`wheel_radius=0.049`**: bán kính **LĂN hiệu dụng** (nhỏ hơn danh nghĩa 50mm do lốp nén dưới tải). Đây mới là đại lượng cần hiệu chuẩn thực nghiệm.
+- **`wheel_radius=0.050`**: bán kính **HÌNH HỌC THẬT** (bánh Ø100mm, nhựa cứng).
+
+> 🔴 **ĐÍNH CHÍNH 2026-09-07 — `0.049` là SAI, và lời biện minh cho nó cũng SAI.**
+> Bản trước ghi *"bán kính LĂN hiệu dụng, nhỏ hơn danh nghĩa 50mm do lốp nén dưới tải"*.
+> **User chỉ ra: bánh nhựa CỨNG, không nén được** → cơ chế đó không tồn tại, đó là câu
+> chuyện dựng lên để hợp lý hoá một con số.
+>
+> `0.049` thực chất suy ngược từ **một** phép đo thô: 21864 tick / 3960 = 5.521 vòng, với
+> r=0.050 xe phải đi **1.735m**, nhưng lần đó đo *"áng chừng vì không có thước chuẩn"* ra
+> ~1.70m (±3cm **tự khai**). Lệch 3.5cm — nằm trong sai số đã tự khai. Thay vì kết luận
+> "phép đo lệch", lại **hạ hằng số phần cứng** cho khớp số đo nhiễu.
+>
+> **Đo lại bằng thước thật (2026-09-07, 2 lần, 0.15 m/s):**
+>
+> | | với r=0.049 | với r=0.050 |
+> |---|---|---|
+> | `/odom` báo | 1.2415 m | **1.2668 m** |
+> | thước (1.280 / 1.265) | 1.2725 m | 1.2725 m |
+> | sai lệch | **−2.4%** | **−0.45%** |
+>
+> ⭐ **Lập luận vật lý quyết định (user đưa ra):** với bánh CỨNG, trượt chỉ làm xe đi **ít
+> hơn** số vòng bánh quay → bán kính hiệu dụng luôn **≤ 0.050**, không bao giờ vượt. Số đo
+> mới suy ra 0.0502 → trượt ≈ 0, phần dôi 0.4% là sai số thước. Còn 0.049 đòi hỏi **2%
+> trượt thường trực**, thứ bánh cứng trên sàn cứng không tạo ra.
+>
+> ⚠️ **Bài học:** đừng chỉnh **hằng số phần cứng** (suy được từ hình học/datasheet) để fit
+> một phép đo nhiễu — chỉ chỉnh đại lượng thật sự chưa biết. Cùng loại sai lầm với vụ
+> "fit 2 tham số bịa thêm để khớp 3 điểm" ở mục backlash đã bị bác bỏ.
+>
+> Hệ quả phụ: `dtheta=(dr−dl)/track_width` cũng tỉ lệ với `r`, nên góc `/odom` tăng 2%
+> (2.27° → 2.32°, thước đo 2.07°). Vẫn nằm trong dao động của chính thước (±0.38°) nên
+> **không đủ căn cứ chỉnh `track_width`** — giữ 0.217 (số đo trực tiếp).
 
 **Cách đo (dựa trên tick THÔ, không phụ thuộc tham số nào đang sai):** chạy thẳng 8s @0.2m/s, đọc delta tick 2 bánh, đo quãng đường bằng thước. Kết quả: delta tick trung bình **21864** (lệch trái/phải chỉ **0.58%**), quãng đường **~1.70m** → `ticks_per_rev` suy ra nằm trong **3970..4113**, **bao trọn giá trị lý thuyết 3960** → xác nhận encoder hoàn toàn bình thường.
 

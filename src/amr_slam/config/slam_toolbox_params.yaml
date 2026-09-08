@@ -15,7 +15,22 @@ slam_toolbox:
 
     # ─── LiDAR filter ────────────────────────────────────────────
     # RPLidar A1M8: range tối đa 12m, noise ở <0.15m
-    min_laser_range: 0.15
+    # ĐO 2026-09-07: cụm PCB + Jetson lắp phía SAU xe che LiDAR trong cung
+    # -45°..+25° của hệ LiDAR (= 180°±35° so với hướng xe), tia gần nhất
+    # 0.11m, xa nhất 0.236m. Cụm này gắn cứng và di chuyển CÙNG xe, nên nếu
+    # lọt vào bản đồ nó sẽ bôi vết ở mọi chỗ xe đi qua. Giá trị cũ 0.15 chặn
+    # chưa đủ — phần 0.15..0.236m vẫn lọt. Chốt 0.28 (dư 4.4cm).
+    #
+    # Ban đầu tôi đoán khối này là "thân xe" và tính ra nó phải chiếm ±30°
+    # ĐỐI XỨNG; đo thực tế lại lệch tâm 10° (-45..+25). User cho biết đó là
+    # PCB + Jetson đặt sau xe — một cụm hộp KHÔNG cân giữa, giải thích đúng
+    # chỗ lệch mà giả thuyết "thân xe trơn" không giải thích được.
+    #
+    # ⚠️ HỆ QUẢ CHO GIAI ĐOẠN 5 (Nav2): xe MÙ 70° ngay sau đuôi, LiDAR chỉ
+    # thấy 290°/360°. SLAM không sao. Nhưng Nav2 đã chốt là muốn quay đầu
+    # chỗ hẹp thì BẮT BUỘC LÙI (Smac Hybrid-A*) — mà xe mù đúng hướng lùi.
+    # Cách xử lý khi tới lúc đó: nâng LiDAR cao hơn Jetson, hoặc dời Jetson.
+    min_laser_range: 0.28
     max_laser_range: 10.0
 
     # ─── Resolution & update ─────────────────────────────────────
