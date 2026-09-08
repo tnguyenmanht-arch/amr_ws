@@ -1096,19 +1096,142 @@ Kể cả sau khi có vi sai, `(dr−dl)` vẫn suy ra hướng **gián tiếp**
 
 **Việc tiếp theo (Lane Detection):** Test `lane_follow_node` thật với ROI đã sửa (kỳ vọng ổn định hơn nhiều). Tune thêm `canny_low/high`, `hough_threshold` nếu cần. Khi IMX-219 về: đổi driver camera sang CSI thật, đo lại vị trí lắp (và `roi_top_ratio` theo đó), giữ nguyên topic `/camera/image_raw`.
 
-### 🔧 Giai đoạn 4 — SLAM: ĐANG TRIỂN KHAI
+### ✅ Giai đoạn 4 — SLAM: HOÀN THÀNH (2026-09-08/09)
 - [x] Cài `ros-humble-slam-toolbox` (apt, 2026-05-14)
 - [x] `amr_slam/config/slam_toolbox_params.yaml` — async mode, resolution 5cm, Ceres solver
-- [x] `amr_slam/launch/slam.launch.py` — 4 node: serial_driver, sllidar, slam_toolbox, static_tf
-  - LiDAR offset tạm thời: `base_link → laser_frame` x=0.15m, z=0.10m (cần đo lại sau khi lắp)
+- [x] `amr_slam/launch/slam.launch.py` — nay **INCLUDE `hardware.launch.py`** thay vì khai
+  báo lại serial_driver (xem "Bug slam.launch.py" bên dưới) + sllidar + slam_toolbox + static_tf
 - [x] `colcon build --packages-select amr_slam` — 0 errors
-- [ ] ⏳ **SẴN SÀNG CHẠY sau 1 lần nạp firmware** — hiệu chuẩn odometry đã XONG (2026-09-07): trim=0.0 verify đạt (thẳng 2cm/1.18m), `GAIN` đo lại = **0.566** (source đã sửa, **board chưa nạp**). Sai số hướng còn ±2.5%, thừa sức cho scan matching. Còn 1 việc: **đo lại vị trí LiDAR** `base_link→laser_frame` (đang là số ước lượng x=0.15, z=0.10).
-- [ ] Chạy thực tế: `ros2 launch amr_slam slam.launch.py` và kiểm tra `/map`
-- [ ] Lưu bản đồ `.yaml` + `.pgm` (`ros2 run nav2_map_server map_saver_cli`)
+- [x] **CHẠY THẬT XONG** — cả hệ (serial_driver + sllidar + slam_toolbox) chạy đồng thời
+  lần đầu, 0 lỗi. `/scan` ~7.5Hz, `/odom` 20Hz, `/map` hình thành đúng.
+- [x] **Lái bằng teleop qua SSH, quét 1 vòng đóng vòng thành công** — bản đồ liền mạch,
+  không tách mảnh/chồng hình. `slam_toolbox` khớp scan tốt suốt vòng.
+- [x] **Lưu bản đồ**: `maps/map_20260909_0000.pgm` + `.yaml` (origin [-3.11,-9.44], res 5cm).
+  ~23 m² không gian đi được — user xác nhận đây gần như TOÀN BỘ vùng xe vào được (phần
+  còn lại là nhà tắm/phòng ngủ/gầm bàn ghế, xe không vào). Bản đồ ĐỦ để làm Nav2.
 
-### ⏳ Giai đoạn 5 — Nav2: CHƯA BẮT ĐẦU
-- [ ] AMCL localization trên bản đồ có sẵn
-- [ ] Điều hướng tự động A → B
+**Việc đã làm trong buổi SLAM (2026-09-08/09) — chi tiết để không phải dò lại:**
+
+1. **🔴 Bug `slam.launch.py` — bản sao số hiệu chuẩn CŨ:** file này TỰ KHAI BÁO LẠI
+   `serial_driver_node` với bộ tham số riêng đã lỗi thời từ 2026-09-05 (`wheel_radius=0.10`
+   lỗi đường-kính-nhầm-bán-kính, `encoder_ppr=11`, THIẾU `track_width` + encoder sign).
+   Chạy SLAM bằng file đó sẽ vứt hết hiệu chuẩn: `/odom` vừa sai quãng đường ~8 lần vừa
+   ĐỨNG YÊN (thiếu encoder sign → `d=(dl+dr)/2` triệt tiêu về 0). Nó còn trỏ `/dev/stm32`
+   (udev rule khớp ST-Link F446 đời cũ, không tồn tại nữa → chết ngay khi khởi động).
+   **Fix: INCLUDE thẳng `hardware.launch.py`** → hiệu chuẩn chỉ tồn tại 1 chỗ, không lệch
+   pha giữa 2 file được nữa. Bài học: KHÔNG copy tham số node sang nhiều launch file.
+
+2. **`wheel_radius` 0.049 → 0.050** — xem "🔴 ĐÍNH CHÍNH 2026-09-07" ở Giai đoạn 3. Bánh
+   nhựa CỨNG không nén được nên bán kính = hình học thật 0.050. Đo thước 2 lần xác nhận
+   (sai số −0.45% với 0.050 vs −2.4% với 0.049).
+
+3. **Vị trí + hướng LiDAR — đo bằng thước + dữ liệu, không đoán:**
+   - `x=0.205, y=0, z=0.135` (thay số ước lượng 0.15/0.10). x đo lại 2026-09-07; kiểm chứng
+     chéo: LiDAR cách đuôi xe 0.25m → phần đuôi thò sau trục sau 4.5cm, khớp giả định 4.7cm.
+   - **`yaw=180°` — LiDAR LẮP QUAY NGƯỢC RA SAU.** Xác định bằng DỮ LIỆU chứ không tìm mũi
+     tên trên vỏ: đặt vật mốc ở 2 vị trí (trước mũi 50cm; bên trái 56cm), mỗi lần DỰ ĐOÁN
+     TRƯỚC góc sẽ thấy rồi so thực đo (dự đoán 180.0°/−81.4°, đo 175-180°/−78°). Bằng chứng
+     độc lập thứ 3: thân xe hiện ra quanh 0° (thứ chắc chắn nằm SAU LiDAR). Sửa bằng phần
+     mềm (static_tf yaw=π), KHÔNG cần tháo LiDAR lắp lại.
+
+4. **`min_laser_range` 0.15 → 0.28** — cụm **PCB + Jetson lắp phía sau xe** che LiDAR trong
+   cung −45°..+25° hệ LiDAR (=180°±35° so hướng xe), tia gần nhất 0.11m, xa nhất 0.236m.
+   Cụm này gắn cứng, di chuyển CÙNG xe → nếu lọt bản đồ sẽ bôi vết theo mọi chỗ xe qua.
+   Giá trị cũ 0.15 chặn chưa đủ. Ban đầu tôi đoán là "thân xe" và tính ra ±30° đối xứng;
+   đo thực lệch tâm 10° (−45..+25) → user cho biết là PCB+Jetson (cụm hộp không cân giữa),
+   giải thích đúng chỗ lệch. **Bài học lặp lại: đừng ghi "khớp" khi mô hình còn phần dư.**
+
+5. **⚠️ VÙNG MÙ 70° NGAY SAU ĐUÔI (hệ quả của #4):** LiDAR chỉ thấy 290°/360°. **SLAM không
+   sao** (290° thừa để khớp). Nhưng **Nav2 sẽ vướng**: xe muốn quay đầu chỗ hẹp thì phải LÙI
+   (bán kính cua nhỏ nhất 0.583m, hành lang 115cm không quay đầu 1 cung được — xem tính toán
+   dưới), mà xe MÙ đúng hướng lùi. **Phải giải trước khi cho Nav2 tự động lùi**: nâng LiDAR
+   cao hơn Jetson, hoặc dời Jetson. Chưa làm.
+
+6. **Hành lang 115cm** (đường ra phòng khách/bếp): xe ĐI XUYÊN QUA được (dải xe quét khi cua
+   rộng 313mm, dư 837mm) nhưng KHÔNG quay đầu 1 cung liền được (cần Ø1523mm). Khi quét bản đồ
+   nhớ đi qua hành lang CẢ 2 CHIỀU nếu không bản đồ thành 2 mảnh.
+
+7. **Workflow điều khiển từ xa (không dây):** Jetson trên xe, nguồn pin riêng. Điều khiển qua
+   **SSH từ laptop** (`ssh nmt@192.168.1.5`, WiFi TTTB, độ trễ ~18-50ms << watchdog 300ms).
+   Rút màn hình/bàn phím không ảnh hưởng tiến trình đang chạy. **Chat với Claude vẫn tiếp tục
+   được sau khi rút màn hình**: Claude Code chạy TRÊN Jetson, lịch sử lưu ở
+   `~/.claude/projects/`, từ laptop SSH vào gõ `cd ~/amr_ws && claude --continue`.
+   ⚠️ Nếu terminal laptop lỗi font tiếng Việt (thiếu glyph/locale) → viết KHÔNG DẤU vẫn đọc được.
+
+8. **Script mới trong `scripts/`** (đã push):
+   - `start_mapping.sh` — bật cả hệ SLAM, tự nhận diện cổng + tự reset LiDAR. Ctrl-C để dừng.
+   - `drive.sh` — teleop bàn phím ở speed 0.15/turn 0.20 (KHÔNG dùng default 0.5 = tốc độ max).
+   - `save_map.sh [tên]` — lưu bản đồ ra `maps/`. CHẠY TRƯỚC KHI TẮT SLAM (bản đồ chỉ ở RAM).
+   - `find_ports.py` — nhận diện cổng bằng cách tìm cổng phun `$ODO` (cả STM32 lẫn LiDAR đều
+     là CP2102 báo serial "0001" giống hệt nhau → không phân biệt được bằng udev; thứ tự
+     ttyUSB0/1 đổi theo thứ tự cắm).
+
+9. **⚠️ Bẫy tiến trình nền:** một lần bật SLAM bằng `nohup ... &` từ phía Claude, tưởng nó đã
+   chết (thực ra chỉ lệnh `topic hz` bị timeout) → nó chạy MỒ CÔI giữ cổng, khiến
+   `start_mapping.sh` của user báo "không cổng nào phun $ODO". Dọn bằng
+   `pkill -9 -f "slam_toolbox|sllidar_node|serial_driver_node"`. `start_mapping.sh` dừng
+   bằng Ctrl-C thì tự dọn sạch, chỉ tiến trình nền cũ mới kẹt.
+
+**Điểm còn theo dõi (chưa chặn việc gì):** SLAM báo hướng nhỉnh hơn thước ~0.8° một cách nhất
+quán (đi thẳng: thước 2.07°, /odom 2.27°, SLAM 2.87°). Không tích luỹ như odom thuần vì
+slam_toolbox chỉ dùng /odom làm dự đoán ban đầu rồi tự sửa mỗi khung. Theo dõi khi Nav2.
+
+---
+
+### ⏳ Giai đoạn 5 — Nav2: CHƯA BẮT ĐẦU (kế hoạch chi tiết 2026-09-09)
+
+> Bản đồ đã có (`maps/map_20260909_0000.pgm`), odometry đã hiệu chuẩn đầy đủ. Đây là việc
+> LỚN, làm từ đầu ở phiên sau khi có thời gian test (nhiều vòng chạy xe). Toàn bộ plugin Nav2
+> cần đã cài sẵn (kiểm tra 2026-09-09: `dpkg -l | grep nav2-` — có đủ smac-planner,
+> regulated-pure-pursuit, mppi, amcl, bt-navigator...). KHÔNG cần tải thêm gì.
+
+**⚠️ CHẶN TRƯỚC KHI CHO NAV2 TỰ ĐỘNG LÙI:** giải vùng mù 70° sau đuôi (mục 5 Giai đoạn 4) —
+nâng LiDAR cao hơn Jetson hoặc dời Jetson. Nếu chưa giải thì cấu hình Nav2 chỉ cho TIẾN
+(`DUBIN` thay `REEDS_SHEPP`) và tự tay đảm bảo mọi đích đến quay đầu được ở chỗ rộng.
+
+**Quyết định thuật toán (đã cân nhắc 2026-09-09, dựa trên hình học xe Ackermann):**
+- **Global planner: `Smac Hybrid-A*`** (`nav2_smac_planner/SmacPlannerHybrid`). LÀ A* nhưng
+  tìm trong không gian (x,y,hướng), mỗi bước là cung tròn hợp lệ với bán kính cua tối thiểu.
+  Dijkstra/A*/Theta* thuần (NavFn, Smac 2D) coi robot là điểm/hình tròn đi mọi hướng → vẽ
+  đường bẻ góc vuông xe Ackermann KHÔNG chạy được.
+  - `minimum_turning_radius: 0.583` (SỐ ĐO THẬT của xe, không đoán)
+  - `motion_model_for_search: "REEDS_SHEPP"` (cho lùi) — chỉ bật SAU khi giải xong vùng mù;
+    tạm thời để `"DUBIN"` (chỉ tiến)
+- **Controller: `Regulated Pure Pursuit` (RPP)** — bắt đầu bằng cái này (có sẵn, ít tham số,
+  bám đường hình học, tự giảm tốc khi cua/gần vật cản). Dự phòng: `MPPI` (mạnh hơn, nặng hơn,
+  nhiều tham số — chỉ đổi nếu RPP không qua nổi hành lang).
+- **❌ KHÔNG dùng DWB** (đang ghi ở mục 4.3 — SỬA khi tới đây): DWB thử cả phương án xoay tại
+  chỗ, xe Ackermann không xoay tại chỗ được. `❌ TEB` chưa cài (gói bên thứ 3), để sau nếu cần.
+- **Localization: `AMCL`** trên bản đồ đã lưu (đã cài sẵn).
+- **GPU/Isaac ROS: KHÔNG dùng cho Nav2** — Isaac là bộ CẢM NHẬN (perception) chạy GPU, không
+  thay được planner. `visual_slam` cần camera stereo, `nvblox` cần camera chiều sâu — ta không
+  có. Isaac để dành cho **Giai đoạn 6 (lane detection, `isaac_ros_dnn_inference`)** và có thể
+  **đỗ xe (`isaac_ros_apriltag`** — dán thẻ vào chỗ đỗ, cho ra cả vị trí lẫn góc). Chỉ cần
+  camera đơn ta đang có. Chưa cài lúc này (ràng buộc JetPack/ROS chặt, thường phải Docker).
+
+**Số liệu hình học cho Nav2 (đã tính, dùng ngay):**
+- `minimum_turning_radius = 0.583 m` (R tâm trục sau ở góc bánh 19.81°)
+- Đường kính vòng quay ngoài (góc trước ngoài) = **1.523 m** → KHÔNG quay đầu 1 cung trong
+  hành lang 115cm; phải quay ở phòng rộng hoặc lùi 3 điểm.
+- Bề rộng dải xe quét khi cua = 313mm (chỉ hơn bề rộng xe 268mm là 45mm) → lách hành lang OK.
+- Robot footprint cho costmap: L=304, W=268mm. Inflation radius nên ≥ (nửa đường chéo thân xe
+  ~0.20m) + lề an toàn. Bắt đầu thử `inflation_radius: 0.30`, `cost_scaling_factor: 3.0`.
+
+**Việc cụ thể (thứ tự làm):**
+1. `amr_navigation/config/nav2_params.yaml` — viết mới (~200 dòng): amcl + planner_server
+   (Smac Hybrid) + controller_server (RPP) + local/global costmap (obstacle từ `/scan`,
+   inflation) + bt_navigator + behavior_server + velocity_smoother.
+2. `amr_navigation/launch/navigation.launch.py` — map_server (nạp `maps/map_20260909_0000.yaml`)
+   + amcl + nav2 lifecycle manager. LƯU Ý dùng lại serial_driver + sllidar + static_tf như
+   slam.launch (INCLUDE hardware.launch, KHÔNG khai báo lại).
+3. Test tăng dần: (a) AMCL định vị đúng khi đặt initial pose trong RViz + đẩy xe tay; (b) đích
+   gần, đường thẳng; (c) đích cần cua; (d) đích qua hành lang. Mỗi bước có user đặt xe + xác
+   nhận an toàn TRƯỚC (quy tắc: lệnh làm xe chạy phải có xác nhận ở lượt ngay trước).
+4. Tune `inflation_radius`, `lookahead_dist` (RPP), tốc độ tối đa (giữ ≤0.3 m/s indoor).
+
+**RViz:** khi test cần RViz để đặt initial pose + goal. Qua SSH thì hoặc cắm màn hình vào
+Jetson, hoặc X11-forward (`ssh -X`, chậm), hoặc chạy RViz trên laptop cùng ROS_DOMAIN_ID
+(hiện chưa đặt = 0). Cân nhắc phương án chạy RViz trên laptop cho nhẹ Jetson.
 
 ### Quyết định kỹ thuật đã chốt
 - **STM32 slave HIỆN TẠI (2026-08-19): F411CEU6 "Black Pill" rời (board mới) + ST-Link ngoài** — không phải F103 nữa. F103 (`amr_stm32f103/`) vẫn giữ nguyên, đã verify ổn định 2026-07-21, giữ làm phương án dự phòng.
