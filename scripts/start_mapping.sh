@@ -8,7 +8,11 @@ source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 echo ">>> Nhan dien cong..."
-eval "$(python3 scripts/find_ports.py)"
+eval "$(python3 scripts/find_ports.py)" || true
+if [ -z "$STM32_PORT" ] || [ -z "$LIDAR_PORT" ]; then
+    echo "!!! Khong nhan dien duoc cong. Kiem tra ca 2 day USB da cam chua." >&2
+    exit 1
+fi
 echo "    STM32 = $STM32_PORT   |   LiDAR = $LIDAR_PORT"
 
 # LiDAR de bi ket o trang thai dang phun du lieu neu lan truoc bi kill giua
