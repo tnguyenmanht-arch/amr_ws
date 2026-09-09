@@ -19,14 +19,10 @@ if [ -z "$STM32_PORT" ] || [ -z "$LIDAR_PORT" ]; then
 fi
 echo "    STM32 = $STM32_PORT   |   LiDAR = $LIDAR_PORT"
 
-echo ">>> Reset LiDAR..."
-python3 - "$LIDAR_PORT" <<'PY'
-import serial, sys, time
-s = serial.Serial(sys.argv[1], 115200, timeout=0.3); s.dtr = False
-s.write(bytes([0xA5, 0x25])); time.sleep(0.1)
-s.write(bytes([0xA5, 0x40])); time.sleep(2.5)
-s.reset_input_buffer(); s.close()
-PY
+echo ">>> Reset LiDAR + kiem chung no quet duoc..."
+# KHONG chi reset roi di tiep: neu LiDAR ket thi Nav2/SLAM van khoi dong, chay
+# duoc mot doan roi moi chet mo ho. Kiem chung ngay tai day, hong thi dung han.
+python3 scripts/lidar_reset.py "$LIDAR_PORT" || exit 1
 
 echo ">>> Bat Nav2 voi ban do: $MAP"
 echo "    LUU Y: xe CHUA chay cho toi khi ban dat initial pose + goal trong RViz."
