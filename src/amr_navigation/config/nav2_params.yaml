@@ -15,7 +15,12 @@ amcl:
     lambda_short: 0.1
     laser_likelihood_max_dist: 2.0
     laser_max_range: 10.0
-    laser_min_range: 0.15
+    # 🔴 SỬA 2026-09-09: 0.15 là SAI — ĐÚNG con bug đã sửa ở slam_toolbox hôm 09-08.
+    # Cụm PCB + Jetson lắp sau xe che LiDAR tới bán kính 0.236m (tia gần nhất 0.11m).
+    # Nếu để 0.15 thì AMCL coi phần 0.15..0.236m là vật cản THẬT, mà chúng đứng yên
+    # so với xe ở MỌI tư thế -> khớp vào bản đồ sai -> định vị trôi. Phải khớp đúng
+    # min_laser_range=0.28 đang dùng bên slam_toolbox.
+    laser_min_range: 0.28
     laser_model_type: likelihood_field
     max_beams: 60
     max_particles: 2000
@@ -26,6 +31,10 @@ amcl:
     recovery_alpha_fast: 0.0
     recovery_alpha_slow: 0.0
     resample_interval: 1
+    # Nav2 KHÔNG có motion model riêng cho Ackermann. Differential là lựa chọn đúng
+    # ở đây: /odom của ta vốn được tính theo kiểu differential-drive từ 2 bánh SAU
+    # (d=(dl+dr)/2, dtheta=(dr-dl)/track_width), nên đặc tính nhiễu khớp mô hình này.
+    # alpha1..5 để mặc định 0.2 — cần tune nếu thấy đám hạt phân tán/hội tụ sai.
     robot_model_type: nav2_amcl::DifferentialMotionModel
     save_pose_rate: 0.5
     sigma_hit: 0.2
@@ -123,7 +132,9 @@ controller_server:
     FollowPath:
       # Dùng Regulated Pure Pursuit — phù hợp với Ackermann
       plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
-      desired_linear_vel: 0.3         # m/s — CẦN ĐIỀU CHỈNH
+      # 0.25 m/s: CLAUDE.md khuyến nghị indoor 0.25-0.3 để PID còn "khoảng dự trữ ga"
+      # bù dốc/tải. Chạy sát 0.5 (full ga) thì PID bão hoà, mất khả năng điều tiết.
+      desired_linear_vel: 0.25
       lookahead_dist: 0.4
       min_lookahead_dist: 0.3
       max_lookahead_dist: 0.9
@@ -160,20 +171,16 @@ local_costmap:
       height: 3
       resolution: 0.05
       robot_radius: 0.21  # circumscribed radius: sqrt((0.152)²+(0.134)²) ≈ 0.20m
-      plugins: ["voxel_layer", "inflation_layer"]
+      # VoxelLayer (mặc định nav2_bringup) đổi sang ObstacleLayer: ta CHỈ có LiDAR 2D,
+      # không có cảm biến chiều sâu nào, nên chia ô 3D theo trục z là tính toán thừa.
+      plugins: ["obstacle_layer", "inflation_layer"]
       inflation_layer:
         plugin: nav2_costmap_2d::InflationLayer
         cost_scaling_factor: 3.0
-        inflation_radius: 0.30  # CẦN ĐIỀU CHỈNH
-      voxel_layer:
-        plugin: nav2_costmap_2d::VoxelLayer
+        inflation_radius: 0.30  # CẦN TUNE khi chạy thật (bán kính xe 0.21)
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
-        publish_voxel_map: true
-        origin_z: 0.0
-        z_resolution: 0.05
-        z_voxels: 16
-        max_obstacle_height: 2.0
-        mark_threshold: 0
         observation_sources: scan
         scan:
           topic: /scan
@@ -182,9 +189,15 @@ local_costmap:
           marking: true
           data_type: LaserScan
           raytrace_max_range: 3.0
-          raytrace_min_range: 0.0
+          # 🔴 SỬA 2026-09-09: min_range 0.0 là SAI VÀ NGUY HIỂM NHẤT trong file này.
+          # Cụm PCB+Jetson sau xe cho tia 0.11-0.236m. Với min_range=0 thì costmap
+          # ĐÁNH DẤU chính cụm đó thành vật cản, và vì nó đi theo xe nên xe luôn tự
+          # thấy mình bị chặn phía sau -> inflation trùm lên chỗ xe đang đứng -> Nav2
+          # kết luận "đang ở trong vật cản", từ chối lập đường, hoặc gọi recovery liên
+          # tục. Phải khớp 0.28 như slam_toolbox và AMCL.
+          raytrace_min_range: 0.28
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.28
       static_layer:
         map_subscribe_transient_local: true
       always_send_full_costmap: true
@@ -197,7 +210,11 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: false
-      robot_radius: 0.15  # CẦN ĐIỀU CHỈNH
+      # 🔴 SỬA 2026-09-09: 0.15 là SAI — NHỎ HƠN kích thước thật của xe.
+      # Xe 304x268mm -> bán kính ngoại tiếp = sqrt(0.152² + 0.134²) = 0.2026m.
+      # Để 0.15 thì planner tưởng xe nhỏ hơn thật -> vẽ đường qua khe xe KHÔNG lọt.
+      # Phải khớp 0.21 của local_costmap (0.2026 + lề an toàn).
+      robot_radius: 0.21
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
@@ -212,9 +229,9 @@ global_costmap:
           marking: true
           data_type: LaserScan
           raytrace_max_range: 3.0
-          raytrace_min_range: 0.0
+          raytrace_min_range: 0.28   # xem giải thích ở local_costmap
           obstacle_max_range: 2.5
-          obstacle_min_range: 0.0
+          obstacle_min_range: 0.28
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_subscribe_transient_local: true
@@ -238,14 +255,62 @@ map_saver:
 
 planner_server:
   ros__parameters:
-    expected_planner_frequency: 20.0
+    # Smac Hybrid nặng hơn Navfn nhiều (tìm trong không gian 3 chiều x,y,góc) nên
+    # 20Hz là quá cao và vô ích — Nav2 chỉ lập lại đường khi cần.
+    expected_planner_frequency: 5.0
     use_sim_time: false
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: nav2_navfn_planner/NavfnPlanner
-      tolerance: 0.5
-      use_astar: false
-      allow_unknown: true
+      # 🔴 SỬA 2026-09-09: bản scaffold dùng nav2_navfn_planner/NavfnPlanner.
+      # Navfn (và mọi Dijkstra/A*/Theta* 2D) coi robot là MỘT ĐIỂM/HÌNH TRÒN đi được
+      # mọi hướng -> đường nó vẽ có thể bẻ góc vuông tại chỗ. Xe Ackermann KHÔNG
+      # thực hiện được đường đó: RPP sẽ cố bám, cắt góc, và đâm vào tường.
+      #
+      # Smac Hybrid-A* VẪN LÀ A*, nhưng tìm trong không gian (x, y, HƯỚNG) và mỗi
+      # bước đi là một cung tròn hợp lệ với bán kính cua tối thiểu của xe. Đường ra
+      # đảm bảo xe chạy được về mặt động học.
+      plugin: "nav2_smac_planner/SmacPlannerHybrid"
+      tolerance: 0.25
+      downsample_costmap: false
+      downsampling_factor: 1
+
+      # false: KHÔNG lập đường xuyên vùng chưa quét. Bản đồ có ~60% ô "chưa biết"
+      # (nhà tắm/phòng ngủ/sau vật cản) — cho phép unknown sẽ dụ xe đi vào đó.
+      allow_unknown: false
+
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+      max_planning_time: 5.0
+
+      # ⭐ SỐ ĐO THẬT CỦA XE, không phải số đoán. Đo bằng test vòng tròn bẻ hết lái
+      # (góc bánh 19.81° sau khi chốt ACK_STEER_GAIN=0.566): R = H/tan(19.81°).
+      # Thực đo 0.585m (trái) / 0.615m (phải). Xem CLAUDE.md Giai đoạn 2.
+      minimum_turning_radius: 0.583
+
+      # ⚠️ "DUBIN" = CHỈ ĐƯỢC TIẾN. Đây là lựa chọn AN TOÀN có chủ đích, KHÔNG phải
+      # thiếu sót: cụm PCB+Jetson sau xe làm LiDAR MÙ 70° ngay hướng lùi. Cho Nav2
+      # tự lùi lúc này là cho nó lùi mù.
+      # Đổi sang "REEDS_SHEPP" (cho lùi, mở khoá quay đầu 3 điểm trong hành lang
+      # 115cm) CHỈ SAU KHI đã nâng LiDAR cao hơn Jetson / dời Jetson.
+      motion_model_for_search: "DUBIN"
+
+      angle_quantization_bins: 72        # 5°/bin
+      analytic_expansion_ratio: 3.5
+      analytic_expansion_max_length: 3.0
+      reverse_penalty: 2.0               # chỉ có tác dụng khi bật REEDS_SHEPP
+      change_penalty: 0.0
+      non_straight_penalty: 1.2
+      cost_penalty: 2.0
+      retrospective_penalty: 0.015
+      lookup_table_size: 20.0
+      cache_obstacle_heuristic: false
+      smooth_path: true
+      smoother:
+        max_iterations: 1000
+        w_smooth: 0.3
+        w_data: 0.2
+        tolerance: 1.0e-10
+        do_refinement: true
 
 smoother_server:
   ros__parameters:
@@ -262,6 +327,17 @@ behavior_server:
     costmap_topic: local_costmap/costmap_raw
     footprint_topic: local_costmap/published_footprint
     cycle_frequency: 10.0
+    # ⚠️ CHƯA SỬA ĐƯỢC BẰNG FILE NÀY — ghi lại để không quên:
+    #   "spin"   = xoay tại chỗ. Xe Ackermann KHÔNG xoay tại chỗ được. Nếu Nav2 gọi
+    #              recovery này, firmware vào nhánh v≈0 -> bánh trước đánh lái nhưng
+    #              xe đứng im -> recovery "chạy" mà không đạt gì, rồi timeout.
+    #              Không nguy hiểm, nhưng lãng phí và che mất nguyên nhân kẹt thật.
+    #   "backup" = lùi 15cm. NGUY HIỂM hơn: xe mù 70° đúng hướng lùi.
+    # Không gỡ khỏi danh sách được vì cây hành vi (BT) mặc định của Nav2 có gọi tới
+    # chúng — gỡ plugin mà BT vẫn gọi thì BT báo lỗi server không tồn tại.
+    # ➜ VIỆC CẦN LÀM: viết BT XML riêng cho Ackermann (bỏ Spin + BackUp, giữ
+    #    ClearCostmap + Wait) rồi trỏ `default_nav_to_pose_bt_xml` ở bt_navigator.
+    #    Trong lúc chưa có: CHỈ test có người trông, sẵn sàng cắt nguồn.
     behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
     spin:
       plugin: nav2_behaviors/Spin
@@ -303,10 +379,20 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [0.5, 0.0, 1.0]    # [x, y, theta] — CẦN ĐIỀU CHỈNH
-    min_velocity: [-0.5, 0.0, -1.0]
-    max_accel: [2.5, 0.0, 3.2]
-    max_decel: [-2.5, 0.0, -3.2]
+    # 🔴 SỬA 2026-09-09: [0.5, _, 1.0] là giới hạn BỊA, không phải khả năng thật.
+    #   x = 0.30 : 0.5 m/s là FULL GA của xe (đo thực 0.55) — chạy sát đó thì PID
+    #              bão hoà. 0.30 khớp khuyến nghị indoor.
+    #   θ = 0.55 : ω tối đa xe ĐẠT ĐƯỢC = v·tan(góc bánh max)/H
+    #              = 0.30 × tan(19.81°) / 0.21 = 0.515 rad/s.
+    #              Để 1.0 thì Nav2 liên tục đòi mức xe không bao giờ đáp ứng nổi ->
+    #              controller tưởng xe không nghe lời, sinh dao động.
+    #   lùi giới hạn chặt hơn tiến (0.15) vì xe mù 70° phía sau.
+    max_velocity: [0.30, 0.0, 0.55]
+    min_velocity: [-0.15, 0.0, -0.55]
+    # Gia tốc 2.5 m/s² là của robot vi sai nhỏ; xe ta nặng hơn và có PID riêng.
+    # Đặt vừa phải, CẦN TUNE khi chạy thật.
+    max_accel: [1.0, 0.0, 2.0]
+    max_decel: [-1.0, 0.0, -2.0]
     odom_topic: odom
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
