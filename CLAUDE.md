@@ -1178,7 +1178,78 @@ slam_toolbox chỉ dùng /odom làm dự đoán ban đầu rồi tự sửa mỗ
 
 ---
 
-### ⏳ Giai đoạn 5 — Nav2: CHƯA BẮT ĐẦU (kế hoạch chi tiết 2026-09-09)
+### 🔧 Giai đoạn 5 — Nav2: ĐANG TRIỂN KHAI — Nav2 ĐÃ KHỞI ĐỘNG ĐƯỢC (2026-09-09/10)
+
+**Trạng thái: cấu hình xong, test tĩnh ĐẠT. Chưa từng cho xe chạy bằng Nav2.**
+
+`nav2_params.yaml` + `navigation.launch.py` HOÁ RA ĐÃ TỒN TẠI SẴN từ lúc scaffold
+workspace — không phải "chưa bắt đầu" như mục này từng ghi. Nhưng đó là bản chép từ
+`nav2_bringup` mặc định, **đúng kiểu bẫy đã cắn ở `slam.launch.py`**. Tìm ra **7 lỗi**,
+mỗi lỗi đều đủ để phá Nav2:
+
+| # | Lỗi | Hậu quả |
+|---|---|---|
+| 1 | planner = `NavfnPlanner` (Dijkstra/A* 2D) | Coi xe là điểm đi mọi hướng → đường bẻ góc vuông, xe Ackermann không chạy được, RPP cắt góc → đâm tường |
+| 2 | costmap `obstacle_min_range: 0.0` (cả 2 costmap) | Costmap đánh dấu chính cụm PCB+Jetson thành vật cản đi theo xe → xe luôn tự thấy bị chặn |
+| 3 | AMCL `laser_min_range: 0.15` | ĐÚNG con bug đã sửa ở slam_toolbox, lặp lại |
+| 4 | `robot_radius: 0.15` (global) | Nhỏ hơn xe thật (0.2026m) → vẽ đường qua khe xe không lọt |
+| 5 | launch thiếu `map_server`+`AMCL` | Truyền `map` vào `navigation_launch.py` (file đó KHÔNG nạp bản đồ) → không có `map→odom`, Nav2 treo chờ TF |
+| 6 | `plugin_lib_names` có 2 thư viện không tồn tại trong Humble | `bt_navigator` ném exception lúc configure → lifecycle_manager **huỷ toàn bộ bringup** |
+| 7 | AMCL thiếu `set_initial_pose` | **Không một dòng lỗi đỏ nào.** Không có initial pose → không phát `map→odom` → global_costmap không kích hoạt → planner_server kẹt mãi ở "Activating" → Nav2 nằm im |
+
+Lỗi #7 nham hiểm nhất: triệu chứng chỉ là "Managed nodes are active" xuất hiện **1 lần**
+(của localization) thay vì 2, không có lỗi nào để lần.
+
+**Kết quả test tĩnh trên xe thật (2026-09-10):** cả 2 lifecycle manager ACTIVE, LiDAR
+10Hz, bản đồ nạp đúng, TF `map→odom→base_link→laser_frame` đủ, planner nạp đúng
+`nav2_smac_planner/SmacPlannerHybrid ... Using motion model: Dubin`, 0 lỗi. Gửi yêu cầu
+vẽ đường (CHỈ tính toán, không chạy xe) → planner nhận và trả lời; từ chối đúng những
+đích rơi vào ô mà tâm xe sẽ va chạm (giá trị costmap 99 = inscribed).
+
+> ⚠️ **HAI PHÉP ĐO SAI của Claude trong buổi này, ghi lại để không lặp:**
+> 1. **Suy luận vòng tròn (lần thứ HAI trong dự án).** Kết luận "vòng quét khớp bản đồ
+>    83% → xe đang ở đúng gốc bản đồ" là VÔ GIÁ TRỊ: so `/scan` với **costmap**, mà
+>    costmap có `obstacle_layer` dựng TỪ CHÍNH `/scan` đó (chiếu qua TF đang giả định xe
+>    ở gốc) → tia nào cũng "trúng vật cản". User bác bỏ: xe KHÔNG ở gốc bản đồ. Muốn
+>    kiểm chứng đúng phải so với **BẢN ĐỒ TĨNH đã lưu**. Lần này tệ hơn lần 2026-09-05
+>    (vụ 0.55 m/s tự xác nhận chính nó) vì nó khiến Claude **bác bỏ nhầm giả thuyết
+>    ĐÚNG của chính mình** rồi đi tìm nguyên nhân ở chỗ khác.
+> 2. **Nhầm thang giá trị costmap.** Kiểm tra "ô bị chặn" bằng ngưỡng `>=253` (thang nội
+>    bộ 0-255) trên bản đồ **đã publish ra ROS** — mà bản publish dùng thang **0-100**
+>    (0=trống, 99=inscribed, 100=lethal, −1=chưa biết). Nên phép kiểm tra không bao giờ
+>    kích hoạt, báo nhầm "0/12 hướng bị chặn".
+
+**Script mới:** `scripts/start_nav.sh` (bật Nav2, tự nhận cổng + reset LiDAR),
+`scripts/rviz_nav.sh` (RViz với `nav2_default_view.rviz`),
+`scripts/lidar_reset.py` (reset LiDAR **VÀ kiểm chứng nó quét được thật**, thử tối đa 3
+lần — LiDAR hay bị bỏ lại ở trạng thái đang phun dữ liệu khi tiến trình trước bị giết
+ngang, lần sau báo `Can not start scan: 8000800x`; đã gắn vào cả `start_mapping.sh`),
+`scripts/usb_reset.py` (reset cứng mức USB, cần sudo, phương án cuối).
+
+### 🔴 VIỆC TIẾP THEO (chốt 2026-09-10)
+
+1. **KHÔNG BIẾT XE ĐANG Ở ĐÂU TRÊN BẢN ĐỒ.** User không nhớ điểm xuất phát lúc quét
+   SLAM. `set_initial_pose=(0,0,0)` hiện tại chỉ để Nav2 khởi động được, KHÔNG phải vị
+   trí thật. Hai cách giải:
+   - (a) **Dò tự động** — lấy 1 vòng quét, dò khắp **bản đồ tĩnh** tìm `(x,y,θ)` khớp
+     nhất, nạp vào `/initialpose`. Không cần GUI, không cần xe chạy. **CHƯA VIẾT.**
+   - (b) RViz "2D Pose Estimate" — user kéo chuột, kiểm tra bằng mắt xem chấm đỏ (scan)
+     có nằm đè lên tường đen không.
+2. **User muốn dùng RViz từ laptop Windows.** Đã tư vấn (chưa làm):
+   - ❌ `ssh -X` — RViz là app 3D OpenGL/GLX, qua X11 forwarding hoặc lỗi hoặc lag không
+     dùng được. (Terminal thì `ssh -X` vẫn tốt.)
+   - ⭐ **VNC** — cài `x11vnc` trên Jetson (cần sudo), RViz chạy trên GPU Jetson, laptop
+     chỉ nhận pixel. Không phải cài lại HĐH. Jetson đang có phiên GNOME thật trên `:1`,
+     WiFi 270 Mbit/s. **Khuyên dùng.**
+   - 🔧 Cài Ubuntu trên laptop — tốt nhất lâu dài (RViz chạy local) nhưng là cam kết lớn,
+     chưa cần cho việc hiện tại. (Đường giữa: WSL2 + WSLg, nhưng DDS qua WSL2 hay vướng.)
+3. Sau khi định vị được: test tăng dần, **mỗi bước user đặt xe + xác nhận an toàn TRƯỚC**
+   (quy tắc: lệnh làm xe chạy phải có xác nhận ở lượt ngay trước).
+   ⚠️ Bấm "2D Goal Pose" trong RViz = **xe chạy thật ngay**.
+   ⚠️ Thân người đứng cạnh xe BỊ VẼ VÀO COSTMAP và đủ để chặn hết đường ra — đã quan sát
+   thấy: xe nằm trong "túi trống" ~1.2m, mọi hướng ngoài đó đều chi phí 86-99.
+
+### 📋 Kế hoạch Nav2 (viết 2026-09-09, phần chưa làm)
 
 > Bản đồ đã có (`maps/map_20260909_0000.pgm`), odometry đã hiệu chuẩn đầy đủ. Đây là việc
 > LỚN, làm từ đầu ở phiên sau khi có thời gian test (nhiều vòng chạy xe). Toàn bộ plugin Nav2
