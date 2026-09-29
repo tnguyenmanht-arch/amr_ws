@@ -28,7 +28,8 @@ EV_PID, EV_ODO, EV_IMUH, EV_DUMMY, EV_LOG_OVH = 1, 2, 3, 4, 5
 EVENT_NAMES = {EV_PID: "PID", EV_ODO: "ODO", EV_IMUH: "IMUH",
                EV_DUMMY: "DUMMY", EV_LOG_OVH: "LOG_OVH"}
 
-CPU_HZ = 100e6              # SYSCLK 100 MHz -> 1 tick DWT = 10 ns
+CPU_HZ = 168e6              # SYSCLK: F407 = 168 MHz (mặc định), F411 cũ = 100 MHz
+                            # -> đổi bằng --cpu-hz, vì DWT đếm theo SYSCLK
 PID_NOMINAL_US = 10_000.0   # PID_INTERVAL_MS = 10 ms
 BAUD = 115200               # USART2, 8N1 = 10 bit/byte
 
@@ -103,6 +104,7 @@ def stats_line(name, x, unit="µs"):
 
 
 def main():
+    global CPU_HZ   # --cpu-hz ghi đè hằng số mặc định
     sys.stdout.reconfigure(encoding="utf-8")   # console Windows mặc định cp1252
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -110,7 +112,10 @@ def main():
     ap.add_argument("--count", type=int, default=None,
                     help="log_count đọc từ chip (nếu có); mặc định tự cắt ở id==0")
     ap.add_argument("--outdir", default=None, help="thư mục lưu PNG (mặc định cạnh file .bin)")
+    ap.add_argument("--cpu-hz", type=float, default=CPU_HZ,
+                    help="SYSCLK của chip đã đo (mặc định 168e6 = F407; F411 cũ dùng 100e6)")
     args = ap.parse_args()
+    CPU_HZ = args.cpu_hz
 
     check_format()
     recs = load(args.bin, args.count)

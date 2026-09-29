@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_MAP = os.path.join(ROOT, "amr_stm32f411", "Debug", "amr_stm32f411.map")
+DEFAULT_MAP = os.path.join(ROOT, "amr_stm32f407", "Debug", "amr_stm32f407.map")  # board hiện tại
 CLI = ("C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/"
        "com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/"
        "tools/bin/STM32_Programmer_CLI.exe")

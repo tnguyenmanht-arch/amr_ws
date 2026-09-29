@@ -8,8 +8,8 @@ Mỗi lần reset/nạp = đúng 1 phiên đo.
 ## Quy trình
 
 ```bash
-# 0. (sau khi được xác nhận) nạp firmware Debug
-STM32_Programmer_CLI.exe -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f411/Debug/amr_stm32f411.elf" -v -rst
+# 0. (sau khi được xác nhận) nạp firmware Debug — board F407 qua ST-Link ở header H1
+STM32_Programmer_CLI.exe -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f407/Debug/amr_stm32f407.elf" -v -rst
 
 # 1. Nhấc bánh khỏi mặt đất, rồi gửi $VEL mỗi 100 ms trong 20 s (script hỏi xác nhận)
 python scripts/send_vel_loop.py --port COM9 --linear 0.2 --duration 20
@@ -27,7 +27,7 @@ watchdog đã trip giữa chừng, phiên bị cắt sớm, cần đo lại.
 
 ## Làm tay (nếu script dump lỗi)
 
-**Tìm địa chỉ** trong `amr_stm32f411/Debug/amr_stm32f411.map`. Địa chỉ đổi theo
+**Tìm địa chỉ** trong `amr_stm32f407/Debug/amr_stm32f407.map`. Địa chỉ đổi theo
 từng lần build, nên phải dùng đúng file .map của bản đang chạy trên chip:
 
 ```
