@@ -57,8 +57,9 @@ void APP_Comm_Parse(void);
  * @param  steer_deg  LỆNH servo hiện tại (độ); dương = TRÁI, âm = PHẢI.
  *                   ⚠️ Là lệnh servo, KHÔNG phải góc bánh thật (xem
  *                   ACK_STEER_GAIN/ACK_STEER_TRIM_DEG trong ackermann.h).
+ * @retval Số byte đã gửi (độ dài khung thật, dùng cho đo timing); 0 nếu lỗi.
  */
-void APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg);
+int APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg);
 
 /**
  * @brief  Gửi chuỗi thô lên Jetson qua UART2 (an toàn với RX interrupt).

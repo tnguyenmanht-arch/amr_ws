@@ -1,6 +1,7 @@
 #include "motor_driver.h"
 #include "motor_pid.h"
 #include "main.h"
+#include "dwt_log.h"   /* Đo timing baseline (branch baseline-dwt) */
 
 /* ARR của TIM3 = 4999 (PWM ~20kHz, timer clock 100MHz trên F411) */
 #define PWM_ARR         4999u
@@ -142,6 +143,11 @@ void DRV_Motor_UpdatePID(void)
     if (now - last_pid_tick_ms < PID_INTERVAL_MS) {
         return; /* Chưa tới chu kỳ PID kế tiếp -- không làm gì cả. */
     }
+    /* [ĐO] Mốc bắt đầu thân PID: đặt SAU đoạn gate thời gian, nên chỉ ghi
+     * những lần PID chạy thật. Hiệu t_start giữa 2 bản ghi EV_PID liên tiếp
+     * = chu kỳ PID thực tế (script tính jitter từ đây). */
+    uint32_t dwt_t0 = DWT_Now();
+
     float dt_s = (float)(now - last_pid_tick_ms) / 1000.0f;
     last_pid_tick_ms = now;
 
@@ -188,6 +194,9 @@ void DRV_Motor_UpdatePID(void)
      * trên hoàn toàn không biết/không cần biết chuyện đảo dấu này. */
     set_channel_speed((int8_t)out_l,        TIM_CHANNEL_1, TIM_CHANNEL_2);
     set_channel_speed((int8_t)(-out_r),     TIM_CHANNEL_3, TIM_CHANNEL_4);
+
+    /* [ĐO] Kết thúc thân PID (đã ghi PWM xong) */
+    DWT_Log(EV_PID, dwt_t0, DWT_Now(), 0u);
 }
 
 HAL_StatusTypeDef DRV_Motor_GetEncoder(int32_t *left, int32_t *right)

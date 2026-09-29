@@ -116,7 +116,7 @@ void APP_Comm_Parse(void)
     }
 }
 
-void APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg)
+int APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg)
 {
     char tx_buf[COMM_TX_BUF_SIZE];
     int  n;
@@ -129,7 +129,9 @@ void APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg)
     if (n > 0) {
         if (n > (int)sizeof(tx_buf)) n = (int)sizeof(tx_buf);
         uart2_tx_raw((const uint8_t *)tx_buf, (uint16_t)n);
+        return n;   /* Độ dài khung thật -- cho hạ tầng đo DWT (baseline-dwt) */
     }
+    return 0;
 }
 
 void APP_Comm_DebugPrint(const char *str)
