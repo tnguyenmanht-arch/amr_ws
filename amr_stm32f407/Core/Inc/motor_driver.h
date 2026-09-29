@@ -49,6 +49,14 @@ HAL_StatusTypeDef DRV_Motor_SetSpeed(int8_t left, int8_t right);
 void DRV_Motor_UpdatePID(void);
 
 /**
+ * @brief  [CHỈ BRING-UP] Ghi duty PWM trực tiếp, KHÔNG qua PID (open-loop).
+ * @param  left, right  Duty -100..100; dấu dương = kênh FWD.
+ * @note   Dùng để xác định chiều FWD/REV và dấu encoder trên board mới.
+ *         Không gọi xen với DRV_Motor_UpdatePID() (PID sẽ ghi đè về 0).
+ */
+void DRV_Motor_SetDutyRaw(int8_t left, int8_t right);
+
+/**
  * @brief  Đọc tổng xung encoder tích lũy từ 2 bánh.
  * @param  left   [out] Xung encoder bánh trái  (int32, tích lũy)
  * @param  right  [out] Xung encoder bánh phải (int32, tích lũy)

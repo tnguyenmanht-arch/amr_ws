@@ -27,6 +27,7 @@
 #include "jetson_comm.h"
 #include "ackermann.h"
 #include "dwt_log.h"        /* Đo timing bằng DWT CYCCNT (168 MHz -> ~5.95 ns/tick) */
+#include "bringup.h"        /* Chế độ kiểm tra board lần đầu (giữ K1 khi reset) */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -142,6 +143,13 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_Delay(500);            // Chờ các module ổn định nguồn
   DRV_Motor_Init();          // PWM duty = 0 + bật encoder
+
+  /* Giữ K1 (PE1) khi reset -> vào chế độ BRING-UP (không trả về). Đặt TRƯỚC
+   * DRV_Servo_Init để servo không tự quay, và TRƯỚC APP_Comm_Init để USART3
+   * chỉ dùng cho bring-up. Xem bringup.h. */
+  if (BRINGUP_Requested()) {
+      BRINGUP_Run();
+  }
   DRV_Servo_Init();          // Servo về vị trí giữa (lái thẳng)
   APP_Comm_Init(on_cmd_vel); // Bật USART3 nhận lệnh "$VEL" từ Jetson
 

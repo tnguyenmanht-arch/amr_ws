@@ -61,6 +61,13 @@ HAL_StatusTypeDef DRV_Servo_SetPosition(uint16_t position, uint16_t duration_ms)
  */
 HAL_StatusTypeDef DRV_Servo_SetAngle(float angle_deg);
 
+/**
+ * @brief  [BRING-UP] Chọn cực tính chân OE của bộ đệm 74LVC2G125.
+ * @param  active_low  1 = OE tích cực THẤP (mặc định, theo datasheet TI), 0 = ngược lại.
+ * @note   Chỉ để thử khi servo im lặng lúc bring-up; firmware chính dùng mặc định.
+ */
+void DRV_Servo_SetBufferActiveLow(uint8_t active_low);
+
 #ifdef __cplusplus
 }
 #endif

@@ -458,7 +458,12 @@ Chưa có source firmware Hiwonder cho board này. Board thật có thể là V1
 
 #### Thay đổi kế hoạch
 - **Đo baseline DWT làm trên board MỚI**, sau khi chuyển firmware xong, để mọi số liệu của cả hai đồ án đều trên cùng một phần cứng. Branch `baseline-dwt` (F411) đã build đạt nhưng **không nạp**
-- Việc tiếp theo: **lập kế hoạch** tạo project CubeMX `amr_stm32f407/` (chỉ lập kế hoạch, chưa làm)
+- ✅ **2026-09-29 (branch `f407-port`, chưa merge `main`): project `amr_stm32f407/` đã tạo + port xong, build Debug/Release 0 lỗi 0 warning, CHƯA nạp** (board chưa về)
+  - `.ioc` viết tay rồi sinh code bằng **CubeMX 6.16.1 bản rời, chạy dòng lệnh** (`%LOCALAPPDATA%\Programs\STM32CubeMX\jre\bin\java.exe -jar STM32CubeMX.exe -q script.txt`, script: `config load <ioc>` / `project generate` / `exit`). ⚠️ Gọi `STM32CubeMX.exe -q` trực tiếp sẽ tách tiến trình và treo chờ hộp thoại → phải gọi qua `java.exe -jar`
+  - Import project headless: `-import "C:\...\amr_stm32f407"` phải dùng **dấu `\`**, dạng `c:/...` bị Eclipse hiểu là giao thức URI ("No file system is defined for scheme: c")
+  - ⚠️ Khi ghép code vào khối `USER CODE BEGIN 3`: dấu `}` đóng `while(1)` do CubeMX sinh nằm **bên trong** khối này, ghi đè cả khối là mất nó
+  - Bring-up: giữ **K1** khi reset → chế độ kiểm tra tương tác (`Core/Src/bringup.c`), output ra cả USART1 lẫn USART3. Checklist ngày hàng về: **`docs/bringup-f407.md`**
+  - Còn chờ đo trên board: `LEFT/RIGHT_CH_FWD/REV`, `LEFT/RIGHT_ENCODER_SIGN` (đang để +1, **chưa được tin dùng PID**), `MAX_TICKS_PER_INTERVAL`, `EN_SW_USE`/`EN_SW_RUN_LEVEL` (đang tắt), cực tính OE bộ đệm servo
 
 ### ✅ Giai đoạn 1 — Nền tảng & Môi trường: HOÀN THÀNH
 - [x] GitHub repo tạo xong, toàn bộ code push lên

@@ -8,9 +8,19 @@
  *   cao = trạng thái nghỉ của UART.
  * Chân OE của 74LVC2G125 TÍCH CỰC MỨC THẤP (theo datasheet TI).
  * ⚠️ CẦN XÁC MINH trên board thật (bring-up): nếu servo không nhúc nhích dù
- * ID/nguồn đúng, thử đảo 2 macro dưới đây trước khi nghi phần cứng. */
-#define SERVO_BUF_ON    GPIO_PIN_RESET
-#define SERVO_BUF_OFF   GPIO_PIN_SET
+ * ID/nguồn đúng, thử đảo cực tính (lệnh 'p' trong bring-up, hoặc
+ * DRV_Servo_SetBufferActiveLow(0)) trước khi nghi phần cứng. */
+static GPIO_PinState SERVO_BUF_ON  = GPIO_PIN_RESET;  /* mặc định: OE tích cực THẤP */
+static GPIO_PinState SERVO_BUF_OFF = GPIO_PIN_SET;
+
+static void servo_bus_rx_mode(void);
+
+void DRV_Servo_SetBufferActiveLow(uint8_t active_low)
+{
+    SERVO_BUF_ON  = active_low ? GPIO_PIN_RESET : GPIO_PIN_SET;
+    SERVO_BUF_OFF = active_low ? GPIO_PIN_SET   : GPIO_PIN_RESET;
+    servo_bus_rx_mode();   /* áp dụng ngay cực tính mới cho trạng thái nghỉ */
+}
 
 /* Chế độ NGHE: tắt nhánh TX trước rồi mới bật nhánh RX (không bao giờ bật
  * cả 2 cùng lúc -> tránh tự nhận lại chính byte mình vừa gửi). */

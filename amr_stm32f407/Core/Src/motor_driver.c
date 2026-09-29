@@ -209,6 +209,19 @@ void DRV_Motor_UpdatePID(void)
     DWT_Log(EV_PID, dwt_t0, DWT_Now(), 0u);
 }
 
+void DRV_Motor_SetDutyRaw(int8_t left, int8_t right)
+{
+    /* CHỈ dùng cho bring-up (open-loop, KHÔNG qua PID): xóa target để nếu lỡ
+     * gọi DRV_Motor_UpdatePID() sau đó thì nó ép duty về 0 chứ không chạy
+     * tiếp theo target cũ. */
+    target_l_pct = 0.0f;
+    target_r_pct = 0.0f;
+    PID_Reset(&pid_l);
+    PID_Reset(&pid_r);
+    set_channel_speed(left,  LEFT_CH_FWD,  LEFT_CH_REV);
+    set_channel_speed(right, RIGHT_CH_FWD, RIGHT_CH_REV);
+}
+
 HAL_StatusTypeDef DRV_Motor_GetEncoder(int32_t *left, int32_t *right)
 {
     /* Cả 2 bánh: timer 32-bit, đọc thẳng CNT. Ép kiểu int32 để lùi ra số âm
