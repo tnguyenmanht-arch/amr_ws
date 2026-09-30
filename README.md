@@ -2,20 +2,23 @@
 
 Robot AMR 4 bánh dẫn động Ackermann, tự định vị, lập bản đồ và điều hướng thông minh trong môi trường trong nhà.
 
-**Dự án môn học** — Chương trình Kỹ sư chuyên sâu Ô tô số  
+**Dự án cá nhân** — Chương trình Kỹ sư chuyên sâu Ô tô số  
 Đại học Bách Khoa Hà Nội (HUST) · ROS2 Humble · Ubuntu 22.04 · Jetson Orin Nano
+
+> Đồ án tốt nghiệp (mạng ECU ô tô qua CAN) nằm ở repo riêng
+> [can-ecu-network](https://github.com/tnguyenmanht-arch/can-ecu-network).
 
 ---
 
 ## Kiến trúc hệ thống
 
 ```
-[Jetson Orin Nano 8GB]  ←UART/USB→  [STM32F446RE Nucleo-64]
-   (ROS2 Master)                        (Low-level Slave)
+[Jetson Orin Nano 8GB]  ←UART/USB→  [STM32F411CEU6 Black Pill]
+   (ROS2 Master)                        (Low-level Slave, amr_stm32f411/)
         │                                      │
    ┌────┴────┐                         ┌───────┴──────┐
    │IMX-219  │                         │JGB37-520 (×2)│
-   │Camera   │                         │Motors+Encoder│
+   │Camera   │                         │+ DRV8871 (×2)│
    └─────────┘                         └──────────────┘
    ┌─────────┐                         ┌──────────────┐
    │RPLidar  │                         │HTS-20H Serial│

@@ -1,9 +1,0 @@
-# File do goil / make.py sinh ra (tao lai bang scripts/trampoline_build.sh)
-*/build/
-*/build.py
-*/make.py
-*.map
-*_exe
-*_exe.bin
-# Thu muc code sinh tu OIL, cung ten voi app -> them 1 dong cho moi app moi
-fpu_check/fpu_check/
