@@ -1,8 +1,0 @@
-# STM32CubeIDE build artifacts
-Debug/
-Release/
-*.su
-
-# IDE / workspace settings
-.settings/
-*.launch
