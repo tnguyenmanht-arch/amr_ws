@@ -17,14 +17,10 @@ echo "    STM32 = $STM32_PORT   |   LiDAR = $LIDAR_PORT"
 
 # LiDAR de bi ket o trang thai dang phun du lieu neu lan truoc bi kill giua
 # chung -> lan ket noi sau doc phai rac va bao timeout. STOP+RESET cho sach.
-echo ">>> Reset LiDAR..."
-python3 - "$LIDAR_PORT" <<'PY'
-import serial, sys, time
-s = serial.Serial(sys.argv[1], 115200, timeout=0.3); s.dtr = False
-s.write(bytes([0xA5, 0x25])); time.sleep(0.1)
-s.write(bytes([0xA5, 0x40])); time.sleep(2.5)
-s.reset_input_buffer(); s.close()
-PY
+echo ">>> Reset LiDAR + kiem chung no quet duoc..."
+# KHONG chi reset roi di tiep: neu LiDAR ket thi Nav2/SLAM van khoi dong, chay
+# duoc mot doan roi moi chet mo ho. Kiem chung ngay tai day, hong thi dung han.
+python3 scripts/lidar_reset.py "$LIDAR_PORT" || exit 1
 
 echo ">>> Bat SLAM. Ctrl-C de dung."
 exec ros2 launch amr_slam slam.launch.py \
