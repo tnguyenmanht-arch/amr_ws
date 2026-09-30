@@ -105,11 +105,6 @@ amr_ws/
 │   ├── amr_slam/           ← CHƯA
 │   ├── amr_navigation/     ← CHƯA
 │   └── amr_perception/     ← CHƯA
-├── firmware/               ← STM32 firmware CŨ (F446RE, đã hỏng — giữ tham khảo lịch sử, KHÔNG build/nạp nữa)
-│   ├── Core/Src/
-│   ├── Core/Inc/
-│   ├── Drivers/
-│   └── amr_stm32.ioc
 ├── amr_stm32f407/          ← firmware HIỆN TẠI (superloop) cho Hiwonder ROS Robot Controller (F407VET6), branch `f407-port`, build OK, CHƯA nạp — xem mục 8
 ├── amr_trampoline/         ← app OSEK/Trampoline cho ĐATN (fpu_check) + patches/ cho bản clone Trampoline — xem mục 8 "ĐATN"
 ├── amr_stm32f411/          ← STM32 firmware CŨ từ 2026-09-29 (F411 Black Pill + DRV8871). Branch `baseline-dwt` có hạ tầng đo DWT (chưa nạp) — sẽ port sang F407
@@ -125,13 +120,13 @@ amr_ws/
 └── README.md
 ```
 
-> **Git:** repo chỉ còn **1 branch `main`** — branch `stm32-firmware` đã bị xóa.
-> Firmware nằm tại `amr_ws/firmware/` (không còn repo riêng).
+> **Git:** branch chính `main`; `f407-port` (F407 + Trampoline) đã gộp vào `main` 2026-09-30. Branch `baseline-dwt` (F411) chỉ có ở máy Windows.
+> 🗑️ **2026-09-30 đã xoá khỏi repo** `firmware/` (F446, đã hỏng) và `amr_stm32f103/` (F103). Chỉ còn firmware F411 và F407. Lấy lại từ lịch sử git nếu cần: `git checkout 00a0954 -- firmware amr_stm32f103`. Các đường dẫn `firmware/...` còn nhắc ở mục 8 là lịch sử.
 
 ### Workflow 2 máy (Windows ↔ Jetson)
 
-- **Windows**: STM32CubeIDE build/flash firmware từ `amr_ws/firmware/`
-- **Windows**: Claude Code viết `.c`/`.h` trong `amr_ws/firmware/Core/`
+- **Windows**: STM32CubeIDE build/flash firmware từ `amr_ws/amr_stm32f407/` (F411: `amr_stm32f411/`)
+- **Windows**: Claude Code viết `.c`/`.h` trong `amr_ws/amr_stm32f407/Core/`; app OSEK trong `amr_trampoline/`
 - **Jetson**: Claude Code viết ROS2 nodes trong `amr_ws/src/`
 - **Sync**: `git push`/`git pull` trên cả 2 máy (cùng branch `main`)
 
