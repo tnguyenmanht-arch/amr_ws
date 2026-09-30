@@ -1,5 +1,9 @@
 # Lộ trình ĐATN: OSEK/Trampoline trên AMR
 
+> ⚠️ **KHÔNG CÒN THUỘC ĐỒ ÁN (từ 30/9/2026).** Đề tài đã đổi sang mạng ECU ô tô trên bàn qua CAN,
+> xem `docs/can-network-architecture.md`. Giữ file này để tham khảo: phần lý thuyết OSEK/Trampoline
+> (GĐ 1B, 1C, 2) và toolchain (GĐ 0) vẫn dùng được; phần gắn với xe (jitter, baseline trên xe, E1–E4) thì bỏ.
+
 **Đề tài:** Phân tích ảnh hưởng của đặc tính thời gian thực trên ECU dùng OSEK/AUTOSAR OS
 (Trampoline) đến chất lượng điều khiển chuyển động của AMR lái Ackermann.
 

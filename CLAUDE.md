@@ -20,8 +20,10 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
                                                     ↓                          ↓
                                           JGB37-520 Motors              HTS-20H Servo (ID=1)
 ```
-> ⭐ **STM32 slave HIỆN TẠI (từ 2026-09-29): Hiwonder "ROS Robot Controller" (STM32F407VET6, 168 MHz, HSE 8 MHz)** — board tích hợp sẵn driver motor, encoder header, cổng bus servo, CAN transceiver, IMU MPU-6050. **Chưa có firmware** (project CubeMX `amr_stm32f407/` chưa tạo). Chi tiết, sơ đồ chân và trạng thái xác minh: mục 8 "Chuyển sang Hiwonder ROS Robot Controller". **KHÔNG phải board MiniROS Controller** (khác driver, IMU, buffer servo — xem mục đó).
-> 🗄️ **F411 + DRV8871 + BusLinker-V2.5 = phần cứng CŨ từ 2026-09-29** — giữ nguyên code `amr_stm32f411/` để tham khảo/dự phòng; các ghi chú bên dưới về F411 là lịch sử.
+> 🧭 **HƯỚNG ĐỒ ÁN TỪ 30/9/2026 (chốt với GVHD) — ĐỌC TRƯỚC:** xe AMR **không còn thuộc đồ án nào**, giữ làm dự án cá nhân với **F411 + DRV8871** (không chuyển sang board Hiwonder nữa, không xoá code xe). Board Hiwonder chuyển sang làm **ECU1 VCU** trong ĐAKS mới: mạng ECU ô tô trên bàn qua CAN. Sơ đồ phía trên và dòng "⭐ slave HIỆN TẠI" ngay dưới là kế hoạch ngày 29/9, **không còn đúng cho xe**. Chi tiết: mục 8 "🧭 Hướng đồ án từ 30/9/2026" và `docs/can-network-architecture.md`.
+>
+> (Kế hoạch 29/9, đã đổi 30/9) ⭐ **STM32 slave HIỆN TẠI (từ 2026-09-29): Hiwonder "ROS Robot Controller" (STM32F407VET6, 168 MHz, HSE 8 MHz)** — board tích hợp sẵn driver motor, encoder header, cổng bus servo, CAN transceiver, IMU MPU-6050. **Chưa có firmware** (project CubeMX `amr_stm32f407/` chưa tạo). Chi tiết, sơ đồ chân và trạng thái xác minh: mục 8 "Chuyển sang Hiwonder ROS Robot Controller". **KHÔNG phải board MiniROS Controller** (khác driver, IMU, buffer servo — xem mục đó).
+> 🗄️ ~~**F411 + DRV8871 + BusLinker-V2.5 = phần cứng CŨ từ 2026-09-29**~~ → **đảo lại ngày 30/9: F411 + DRV8871 vẫn là phần cứng của xe AMR** (dự án cá nhân). Code `amr_stm32f411/` là firmware xe đang dùng.
 >
 > **(CŨ) STM32 slave F411CEU6 "Black Pill" (board mới, khác board đã hỏng lần 3)** — không phải F103 nữa. Sau khi F103 verify xong (2026-07-21), quá trình debug "giật cục" BTS7960 tiếp diễn trên 1 board F411 mới mua khác; 2026-08-19 quyết định **bỏ kế hoạch MiniROS Controller** (tạm dừng, xem mục 8), dùng hẳn F411 + DRV8871 làm hướng chính. F103 (`amr_stm32f103/`) đã verify ổn định, nhưng **thư mục đã xoá khỏi repo 2026-09-30** (còn trong lịch sử git).
 > **(CŨ) Motor driver: DRV8871 x2 (thay BTS7960 2026-08-19)** — chỉ 2 chân logic IN1/IN2 (không R_EN/L_EN), VM/GND/OUT1/OUT2 qua terminal vít. Đơn giản hơn BTS7960 hẳn, không cần rail 5V riêng cho driver. Xem mục 8.
@@ -39,7 +41,9 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 - Giao tiếp với slave: UART hoặc USB-Serial
 - Thư viện NVIDIA có thể dùng: Isaac ROS, DeepStream, TensorRT (nếu phần cứng đủ điều kiện)
 
-### Slave HIỆN TẠI: Hiwonder "ROS Robot Controller" V1.x (STM32F407VET6)
+### Hiwonder "ROS Robot Controller" V1.x (STM32F407VET6) — từ 30/9/2026 là ECU1 VCU của ĐAKS (mạng CAN), KHÔNG phải slave của xe
+> Thông số và sơ đồ chân dưới đây vẫn đúng và dùng cho ECU1. Những chỗ ghi "slave của xe", motor, encoder, servo không còn áp dụng. Kiến trúc mạng CAN: `docs/can-network-architecture.md`.
+
 - MCU: STM32F407VET6, 100 chân, Flash 512 KB, RAM 192 KB. Thạch anh HSE **8 MHz** → SYSCLK **168 MHz** (trùng target `stm32f407` chính thức của Trampoline)
 - Firmware: **chưa có**, dự kiến tạo project CubeMX mới `amr_stm32f407/` (chỉ mới lập kế hoạch)
 - Nạp/debug: dự kiến **ST-Link V2 qua header H1** (PA13=SWDIO chân 7, PA14=SWCLK chân 3, GND). Cơ chế nạp qua "cổng USB số 7" chưa xác minh (xem mục 8)
@@ -107,6 +111,7 @@ amr_ws/
 │   └── amr_perception/     ← CHƯA
 ├── amr_stm32f407/          ← firmware HIỆN TẠI (superloop) cho Hiwonder ROS Robot Controller (F407VET6), branch `f407-port`, build OK, CHƯA nạp — xem mục 8
 ├── amr_trampoline/         ← app OSEK/Trampoline cho ĐATN (fpu_check) + patches/ cho bản clone Trampoline — xem mục 8 "ĐATN"
+├── can/vehicle.dbc         ← ĐAKS (từ 30/9): hợp đồng CAN giữa các ECU, bản nháp 0.1 — branch `can-network`, xem docs/can-network-architecture.md
 ├── amr_stm32f411/          ← STM32 firmware CŨ từ 2026-09-29 (F411 Black Pill + DRV8871). Branch `baseline-dwt` có hạ tầng đo DWT (chưa nạp) — sẽ port sang F407
 │   ├── Core/Src/
 │   ├── Core/Inc/
@@ -333,7 +338,37 @@ Luôn hỏi: "Bạn đang dùng ROS2 distro gì?" nếu chưa rõ → mặc đ�
 
 ## 8. Trạng thái dự án (cập nhật thủ công)
 
+### 🧭 Hướng đồ án từ 30/9/2026 (chốt với GVHD) — ưu tiên đọc mục này trước
+
+**Quyết định:**
+1. **ĐAKS không dùng xe AMR nữa**, không phân tích ảnh hưởng thời gian thực lên chuyển động. Bỏ: jitter/điều khiển, baseline superloop trên xe, chuyển firmware xe sang task, thí nghiệm E1–E4
+2. **ĐAKS mới: mô phỏng mạng ECU ô tô trên bàn qua CAN**, phần mềm chia tầng kiểu AUTOSAR
+3. **ĐACN mới: app HMI (cụm đồng hồ) bằng Kotlin Android**, tách từ ĐAKS, GVHD hướng dẫn phần Android, ở repo/thư mục riêng (chưa làm). **ĐACN cũ (QoS UART-DMA STM32–Jetson, E2E trên UART) KHÔNG làm nữa**
+4. **Xe AMR (F411 + DRV8871) giữ nguyên làm dự án cá nhân**, không thuộc đồ án nào. Không xoá code xe
+5. Phần Trampoline đã làm (goil build được trên Windows, bản vá hard-float, `fpu_check`) **vẫn giữ và dùng tiếp** cho ECU1
+
+**Kiến trúc** (chi tiết: **`docs/can-network-architecture.md`**; hợp đồng giữa các ECU: **`can/vehicle.dbc`**, bản nháp 0.1):
+- **ECU1 VCU** = board Hiwonder (F407) + Trampoline. VP230 và trở 120 Ω có sẵn (ECU1 nằm ở một đầu bus). Nhận ga/phanh/số, chạy mô hình xe đơn giản, gửi tốc độ, vòng quay, % pin. Buzzer PA8 kêu khi cửa mở lúc đang chạy. Giám sát timeout các ECU khác
+- **ECU2 Pedal**, **ECU3 Body** = STM32F103C8T6 + SN65HVD230, bare-metal HAL. CAN remap **PB8/PB9** (PA11/PA12 là chân USB của Blue Pill)
+- **Jetson Orin Nano** = gateway/cockpit, CAN qua header J17 + SN65HVD230 (SocketCAN, `mttcan`). Giải mã theo DBC, gửi sang Android **theo tên tín hiệu**
+- Bus: CAN thường **500 kbit/s**, đúng 2 trở 120 Ω ở 2 đầu (đo ~60 Ω giữa CANH–CANL khi tắt nguồn), dây xoắn đôi + GND chung, cấp nguồn chung một nguồn
+
+**Nguyên tắc module (bắt buộc):**
+- DBC là hợp đồng chung DUY NHẤT
+- Tầng: SWC → RTE tối giản → COM → CanIf → driver. COM/CanIf viết C thuần, KHÔNG gọi HAL, dùng chung F407/F103
+- Dải ID: 0x080–0x1FF truyền động, 0x300–0x3FF thân xe, 0x400–0x4FF pin, 0x500–0x5FF HMI gửi ngược, 0x700–0x7FF UDS
+- Jetson/Android không phụ thuộc layout byte
+
+**Trạng thái (30/9):**
+- Branch **`can-network`** (tách từ `f407-port`): có DBC nháp (kiểm bằng cantools: hợp lệ, không chồng bit, tải bus lý thuyết 3,0 %) và tài liệu kiến trúc
+- **Cấu trúc thư mục chỉ mới ĐỀ XUẤT, chờ user duyệt** (mục 7 của tài liệu kiến trúc). **CHƯA viết firmware, CHƯA nạp code**
+- Phần cứng cần mua: 1× F103C8T6 (đã có 1), 3× SN65HVD230, dây xoắn đôi
+- ⚠️ **Sổ tay Claude Docs** (lộ trình 9 giai đoạn) được viết theo hướng CŨ (OSEK trên xe AMR) → cần viết lại theo hướng mới. Phần lý thuyết OSEK/Trampoline trong đó vẫn dùng được. Từ nay **AUTOSAR COM trở thành trong phạm vi** (trước đây đã khuyên bỏ `OSEKCOM303`)
+- Chế độ làm việc giữ nguyên: user tự học, tự làm; Claude giảng và review (xem mục "🎓 ĐATN" bên dưới)
+
 ### ⭐ Chuyển sang Hiwonder "ROS Robot Controller" (STM32F407VET6) — 2026-09-29
+
+> ⚠️ **Từ 30/9/2026: board này KHÔNG còn là slave của xe AMR** mà là ECU1 VCU của ĐAKS (xem mục ngay trên). Phần nguồn, sơ đồ chân, quy trình kết nối an toàn, rủi ro vẫn đúng. Phần motor, encoder, servo và firmware superloop `amr_stm32f407/` (port từ xe) **không còn thuộc đồ án**. Code giữ lại, không xoá.
 
 **Trạng thái: đã chốt đổi board. CHƯA viết firmware, CHƯA nạp, CHƯA quay motor.** Mọi bước nạp code hoặc làm motor quay phải có xác nhận của user ở lượt ngay trước đó. F411 + DRV8871 + BusLinker từ đây là phần cứng CŨ (giữ tham khảo, code `amr_stm32f411/` giữ nguyên).
 
@@ -447,7 +482,7 @@ Chưa có source firmware Hiwonder cho board này. Board thật có thể là V1
 - Hạ tầng đo DWT (branch `baseline-dwt`: `dwt_log.c/h`, `scripts/*baseline*`) dùng lại được. Riêng ở 168 MHz thì 1 tick = 5.95 ns và CYCCNT tràn sau ~25.6 s → phải sửa `CPU_HZ` trong `analyze_baseline.py` và chú thích trong `dwt_log.h`
 
 #### Thay đổi kế hoạch
-- **Đo baseline DWT làm trên board MỚI**, sau khi chuyển firmware xong, để mọi số liệu của cả hai đồ án đều trên cùng một phần cứng. Branch `baseline-dwt` (F411) đã build đạt nhưng **không nạp**
+- ~~**Đo baseline DWT làm trên board MỚI**~~ **(không còn thuộc đồ án từ 30/9/2026: bỏ baseline trên xe)**, sau khi chuyển firmware xong, để mọi số liệu của cả hai đồ án đều trên cùng một phần cứng. Branch `baseline-dwt` (F411) đã build đạt nhưng **không nạp**
 - ✅ **2026-09-29 (branch `f407-port`, chưa merge `main`): project `amr_stm32f407/` đã tạo + port xong, build Debug/Release 0 lỗi 0 warning, CHƯA nạp** (board chưa về)
   - `.ioc` viết tay rồi sinh code bằng **CubeMX 6.16.1 bản rời, chạy dòng lệnh** (`%LOCALAPPDATA%\Programs\STM32CubeMX\jre\bin\java.exe -jar STM32CubeMX.exe -q script.txt`, script: `config load <ioc>` / `project generate` / `exit`). ⚠️ Gọi `STM32CubeMX.exe -q` trực tiếp sẽ tách tiến trình và treo chờ hộp thoại → phải gọi qua `java.exe -jar`
   - Import project headless: `-import "C:\...\amr_stm32f407"` phải dùng **dấu `\`**, dạng `c:/...` bị Eclipse hiểu là giao thức URI ("No file system is defined for scheme: c")
@@ -456,6 +491,8 @@ Chưa có source firmware Hiwonder cho board này. Board thật có thể là V1
   - Còn chờ đo trên board: `LEFT/RIGHT_CH_FWD/REV`, `LEFT/RIGHT_ENCODER_SIGN` (đang để +1, **chưa được tin dùng PID**), `MAX_TICKS_PER_INTERVAL`, `EN_SW_USE`/`EN_SW_RUN_LEVEL` (đang tắt), cực tính OE bộ đệm servo
 
 ### 🎓 ĐATN — OSEK/Trampoline (từ 2026-09-30)
+
+> ⚠️ **Cập nhật cùng ngày 30/9: đề tài đổi sang mạng CAN** (xem "🧭 Hướng đồ án từ 30/9/2026" ở đầu mục 8). Những thứ **vẫn đúng** trong mục này: cách làm việc, toolchain Trampoline, bản vá hard-float, quy tắc `USEFLOAT`. Những thứ **không còn thuộc đồ án**: đề cương DAKS bản 28/9, lộ trình GĐ 3–7 theo xe (baseline trên xe, chuyển firmware xe sang task, E1–E4), `docs/lo-trinh-datn.md`.
 
 - ⭐ **Cách làm việc: user là người mới, muốn TỰ học và TỰ làm để báo cáo được.** Thứ tự: đọc → hiểu → thiết kế (Claude giảng) → code (user viết, Claude review) → test. **Claude KHÔNG tự viết code hay tự chuyển giai đoạn khi user chưa yêu cầu.** Mỗi đầu việc có mức: Tự làm / Làm cùng / Claude làm, user giải thích lại
 - **Sổ tay làm việc chính (Claude Docs):** https://claude.ai/code/artifact/b8999f1f-6937-4e05-b481-7cafc3363337. Có 3 tab: Lộ trình (9 giai đoạn, bảng câu hỏi có cột "Trả lời của bạn"/"Claude nhận xét"), Thuật ngữ & ghi chú, Nhật ký. `docs/lo-trinh-datn.md` chỉ là bản chụp ngày 30/9, không cập nhật song song
@@ -1445,8 +1482,9 @@ Jetson, hoặc X11-forward (`ssh -X`, chậm), hoặc chạy RViz trên laptop c
 (hiện chưa đặt = 0). Cân nhắc phương án chạy RViz trên laptop cho nhẹ Jetson.
 
 ### Quyết định kỹ thuật đã chốt
-- ⭐ **STM32 slave HIỆN TẠI (từ 2026-09-29): Hiwonder "ROS Robot Controller" (STM32F407VET6)**, board tích hợp driver YX-4055AM, bus servo, CAN VP230, MPU-6050. Chưa có firmware. Pin LiPo 3S → terminal 21. Quy trình kết nối "một đường nối, một máy" là bắt buộc. Xem mục đầu mục 8. Hai gạch đầu dòng F411/DRV8871 ngay dưới đây là quyết định CŨ.
-- (CŨ) **STM32 slave (2026-08-19 → 2026-09-28): F411CEU6 "Black Pill" rời (board mới) + ST-Link ngoài** — không phải F103 nữa. F103 (`amr_stm32f103/`) đã verify ổn định 2026-07-21; **thư mục đã xoá khỏi repo 2026-09-30** (còn trong lịch sử git).
+- 🧭 **Từ 30/9/2026:** board Hiwonder (F407) là **ECU1 VCU của ĐAKS** (mạng CAN), **không** phải slave của xe. Xe AMR dùng lại **F411 + DRV8871** (dự án cá nhân). Xem "🧭 Hướng đồ án từ 30/9/2026" ở đầu mục 8.
+- (Kế hoạch 29/9, đã đổi 30/9) ⭐ **STM32 slave: Hiwonder "ROS Robot Controller" (STM32F407VET6)**, board tích hợp driver YX-4055AM, bus servo, CAN VP230, MPU-6050. Pin LiPo 3S → terminal 21. Quy trình kết nối "một đường nối, một máy" là bắt buộc (vẫn áp dụng khi dùng làm ECU1).
+- **STM32 slave của xe AMR: F411CEU6 "Black Pill" rời + DRV8871 + ST-Link ngoài** (dùng từ 2026-08-19; ngày 29/9 định thay bằng Hiwonder nhưng 30/9 đảo lại, F411 vẫn là slave của xe) — không phải F103 nữa. F103 (`amr_stm32f103/`) đã verify ổn định 2026-07-21; **thư mục đã xoá khỏi repo 2026-09-30** (còn trong lịch sử git).
 - **⏸️ Kế hoạch Hiwonder "MiniROS Controller" TẠM DỪNG (2026-08-19)** — xem "MiniROS Controller — kế hoạch thay thế" bên dưới (đã đánh dấu tạm dừng). Quyết định tiếp tục dùng F411 rời + DRV8871 thay vì chuyển sang MiniROS.
 - (CŨ) Motor driver: **DRV8871 x2 (1 module/motor), thay BTS7960 2026-08-19** — chỉ 2 chân logic IN1/IN2 (PA6/PA7 trái, PB0/PB1 phải), không R_EN/L_EN, VM/GND/OUT1/OUT2 qua terminal vít, dây ≥18-20AWG. Firmware không đổi (cùng interface "PWM 1 chân, chân kia=0"). Xem mục "Chuyển hẳn sang F411 (board mới) + DRV8871" phía trên.
 - Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái 32-bit + TIM4 phải 16-bit trên F411), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32, đã cân nhắc và loại bỏ giả thuyết đổi 5V khi debug giật cục 2026-08-19)
