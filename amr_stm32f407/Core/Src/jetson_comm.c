@@ -4,7 +4,14 @@
 #include <stdlib.h>      /* strtof */
 #include <stdio.h>       /* snprintf */
 
-/* ===== Circular buffer nhận UART2 =====
+/* ===== Chọn UART nối Jetson =====
+ * Board Hiwonder ROS Robot Controller: cổng USB số 4 ("serial 2") = chip
+ * CH9102F (U3) -> PD8 (TX) / PD9 (RX) = USART3 (schematic V1.1, trang 2).
+ * Đổi cổng thì chỉ sửa 2 dòng này (và bật NVIC cho UART mới trong .ioc). */
+#define COMM_HUART   huart3
+#define COMM_USART   USART3
+
+/* ===== Circular buffer nhận UART Jetson (USART3) =====
  * HAL_UART_RxCpltCallback (ISR) đẩy từng byte vào đây.
  * APP_Comm_Parse() (main loop) tiêu thụ từ tail.
  * head/tail là volatile để an toàn giữa ISR và main loop. */
@@ -26,14 +33,14 @@ static comm_cmd_vel_cb_t g_cmd_vel_cb = NULL;
  * Nếu HAL_UART_RxCpltCallback (ISR) chạy đúng lúc đó, lời gọi
  * HAL_UART_Receive_IT bên trong nó sẽ thấy lock BUSY và KHÔNG re-arm
  * được interrupt RX -> reception chết vĩnh viễn (TX vẫn chạy).
- * Ghi thẳng vào USART2->DR né hoàn toàn lock này nên RX không bao giờ chết. */
-static void uart2_tx_raw(const uint8_t *data, uint16_t len)
+ * Ghi thẳng vào COMM_USART->DR né hoàn toàn lock này nên RX không bao giờ chết. */
+static void comm_tx_raw(const uint8_t *data, uint16_t len)
 {
     for (uint16_t i = 0; i < len; i++) {
-        while (!(USART2->SR & USART_SR_TXE)) { /* chờ thanh ghi gửi rỗng */ }
-        USART2->DR = (uint16_t)(data[i] & 0xFFU);
+        while (!(COMM_USART->SR & USART_SR_TXE)) { /* chờ thanh ghi gửi rỗng */ }
+        COMM_USART->DR = (uint16_t)(data[i] & 0xFFU);
     }
-    while (!(USART2->SR & USART_SR_TC)) { /* chờ truyền xong byte cuối */ }
+    while (!(COMM_USART->SR & USART_SR_TC)) { /* chờ truyền xong byte cuối */ }
 }
 
 /* ===== Nội bộ ===== */
@@ -42,8 +49,8 @@ static void uart2_tx_raw(const uint8_t *data, uint16_t len)
  * (do lỗi overrun hoặc lock race trước đó). Gọi an toàn bất cứ lúc nào. */
 static void rx_ensure_armed(void)
 {
-    if (huart2.RxState == HAL_UART_STATE_READY) {
-        HAL_UART_Receive_IT(&huart2, &rx_single, 1);
+    if (COMM_HUART.RxState == HAL_UART_STATE_READY) {
+        HAL_UART_Receive_IT(&COMM_HUART, &rx_single, 1);
     }
 }
 
@@ -85,7 +92,7 @@ void APP_Comm_Init(comm_cmd_vel_cb_t cb)
 
     /* Kích hoạt nhận interrupt byte đầu tiên;
      * HAL_UART_RxCpltCallback tự tái kích hoạt sau mỗi byte. */
-    HAL_UART_Receive_IT(&huart2, &rx_single, 1);
+    HAL_UART_Receive_IT(&COMM_HUART, &rx_single, 1);
 }
 
 void APP_Comm_Parse(void)
@@ -128,7 +135,7 @@ int APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg)
 
     if (n > 0) {
         if (n > (int)sizeof(tx_buf)) n = (int)sizeof(tx_buf);
-        uart2_tx_raw((const uint8_t *)tx_buf, (uint16_t)n);
+        comm_tx_raw((const uint8_t *)tx_buf, (uint16_t)n);
         return n;   /* Độ dài khung thật -- cho hạ tầng đo DWT (baseline-dwt) */
     }
     return 0;
@@ -137,16 +144,16 @@ int APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg)
 void APP_Comm_DebugPrint(const char *str)
 {
     if (str != NULL) {
-        uart2_tx_raw((const uint8_t *)str, (uint16_t)strlen(str));
+        comm_tx_raw((const uint8_t *)str, (uint16_t)strlen(str));
     }
 }
 
 /* ===== HAL Callbacks (override weak symbol) ===== */
 
-/* RXNE complete: gọi từ USART2_IRQHandler -> HAL_UART_IRQHandler. */
+/* RXNE complete: gọi từ USART3_IRQHandler -> HAL_UART_IRQHandler. */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART2) {
+    if (huart->Instance == COMM_USART) {
         /* Đẩy byte vào circular buffer nếu chưa đầy */
         uint16_t next_head = (uint16_t)((rx_head + 1u) % COMM_RX_BUF_SIZE);
         if (next_head != rx_tail) {
@@ -154,20 +161,20 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
             rx_head = next_head;
         }
         /* Tái kích hoạt nhận byte tiếp theo */
-        HAL_UART_Receive_IT(&huart2, &rx_single, 1);
+        HAL_UART_Receive_IT(&COMM_HUART, &rx_single, 1);
     }
 }
 
 /* Lỗi UART (ORE/FE/NE/PE): xóa cờ và kích hoạt lại RX để không chết. */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART2) {
+    if (huart->Instance == COMM_USART) {
         /* Đọc SR rồi DR để xóa cờ overrun/framing trên dòng STM32F4 */
         volatile uint32_t tmp;
         tmp = huart->Instance->SR;
         tmp = huart->Instance->DR;
         (void)tmp;
         huart->ErrorCode = HAL_UART_ERROR_NONE;
-        HAL_UART_Receive_IT(&huart2, &rx_single, 1);
+        HAL_UART_Receive_IT(&COMM_HUART, &rx_single, 1);
     }
 }

@@ -8,7 +8,7 @@ extern "C" {
 #include "main.h"
 #include <stdint.h>
 
-/* ===== Giao thức UART2 (ASCII): STM32 <-> Jetson Orin Nano =====
+/* ===== Giao thức UART Jetson (ASCII, USART3 = cổng USB số 4 qua CH9102): STM32 <-> Jetson Orin Nano =====
  *
  * Jetson -> STM32 (lệnh vận tốc):
  *   "$VEL,<linear_x>,<angular_z>\n"
@@ -18,7 +18,7 @@ extern "C" {
  *   "$ODO,<enc_left>,<enc_right>,<steer_angle>\n"
  *   Ví dụ: "$ODO,1234,-1230,15.5\n"
  *
- * Baud rate: 115200, 8N1 (khớp với USART2 trong CubeMX).
+ * Baud rate: 115200, 8N1 (khớp với USART3 trong CubeMX).
  *
  * LƯU Ý BUILD: parse/format dùng sscanf/snprintf với "%f" -> CẦN bật
  * float trong printf/scanf. Trong STM32CubeIDE:
@@ -39,7 +39,7 @@ extern "C" {
 typedef void (*comm_cmd_vel_cb_t)(float linear, float angular);
 
 /**
- * @brief  Khởi tạo module giao tiếp Jetson, kích hoạt UART2 nhận interrupt.
+ * @brief  Khởi tạo module giao tiếp Jetson, kích hoạt USART3 nhận interrupt.
  * @param  cb  Hàm gọi khi parse được 1 lệnh "$VEL" hợp lệ. NULL = bỏ qua.
  */
 void APP_Comm_Init(comm_cmd_vel_cb_t cb);
@@ -51,7 +51,7 @@ void APP_Comm_Init(comm_cmd_vel_cb_t cb);
 void APP_Comm_Parse(void);
 
 /**
- * @brief  Gửi gói odometry lên Jetson qua UART2 (blocking).
+ * @brief  Gửi gói odometry lên Jetson qua USART3 (blocking).
  * @param  enc_l      Xung encoder bánh trái  (int32, tích lũy)
  * @param  enc_r      Xung encoder bánh phải (int32, tích lũy)
  * @param  steer_deg  LỆNH servo hiện tại (độ); dương = TRÁI, âm = PHẢI.
@@ -62,7 +62,7 @@ void APP_Comm_Parse(void);
 int APP_Comm_SendOdom(int32_t enc_l, int32_t enc_r, float steer_deg);
 
 /**
- * @brief  Gửi chuỗi thô lên Jetson qua UART2 (an toàn với RX interrupt).
+ * @brief  Gửi chuỗi thô lên Jetson qua USART3 (an toàn với RX interrupt).
  *         Dùng cho debug; không đụng HAL lock nên không làm chết RX.
  * @param  str  Chuỗi kết thúc '\0' (tự thêm xuống dòng nếu cần trong nội dung).
  */

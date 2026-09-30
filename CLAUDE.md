@@ -23,7 +23,7 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 > ⭐ **STM32 slave HIỆN TẠI (từ 2026-09-29): Hiwonder "ROS Robot Controller" (STM32F407VET6, 168 MHz, HSE 8 MHz)** — board tích hợp sẵn driver motor, encoder header, cổng bus servo, CAN transceiver, IMU MPU-6050. **Chưa có firmware** (project CubeMX `amr_stm32f407/` chưa tạo). Chi tiết, sơ đồ chân và trạng thái xác minh: mục 8 "Chuyển sang Hiwonder ROS Robot Controller". **KHÔNG phải board MiniROS Controller** (khác driver, IMU, buffer servo — xem mục đó).
 > 🗄️ **F411 + DRV8871 + BusLinker-V2.5 = phần cứng CŨ từ 2026-09-29** — giữ nguyên code `amr_stm32f411/` để tham khảo/dự phòng; các ghi chú bên dưới về F411 là lịch sử.
 >
-> **(CŨ) STM32 slave F411CEU6 "Black Pill" (board mới, khác board đã hỏng lần 3)** — không phải F103 nữa. Sau khi F103 verify xong (2026-07-21), quá trình debug "giật cục" BTS7960 tiếp diễn trên 1 board F411 mới mua khác; 2026-08-19 quyết định **bỏ kế hoạch MiniROS Controller** (tạm dừng, xem mục 8), dùng hẳn F411 + DRV8871 làm hướng chính. F103 (`amr_stm32f103/`) vẫn giữ nguyên, đã verify ổn định, là phương án dự phòng nếu cần quay lại.
+> **(CŨ) STM32 slave F411CEU6 "Black Pill" (board mới, khác board đã hỏng lần 3)** — không phải F103 nữa. Sau khi F103 verify xong (2026-07-21), quá trình debug "giật cục" BTS7960 tiếp diễn trên 1 board F411 mới mua khác; 2026-08-19 quyết định **bỏ kế hoạch MiniROS Controller** (tạm dừng, xem mục 8), dùng hẳn F411 + DRV8871 làm hướng chính. F103 (`amr_stm32f103/`) đã verify ổn định, nhưng **thư mục đã xoá khỏi repo 2026-09-30** (còn trong lịch sử git).
 > **(CŨ) Motor driver: DRV8871 x2 (thay BTS7960 2026-08-19)** — chỉ 2 chân logic IN1/IN2 (không R_EN/L_EN), VM/GND/OUT1/OUT2 qua terminal vít. Đơn giản hơn BTS7960 hẳn, không cần rail 5V riêng cho driver. Xem mục 8.
 > **(CŨ) Servo quay lại dùng board debug TTL "BusLinker-V2.5" (mua mới, 2026-08-19)** — thay lối đấu điện trở tạm trước đây. Board chỉ có 1 đường nguồn vào (Vin 5-14V qua terminal) — chân "5V" trên header là OUTPUT tự sinh, KHÔNG cấp nguồn ngoài vào đó. `SERVO_ID` đổi từ 9 → **1** (đổi servo). Xem mục 8.
 > **(CŨ) Kế hoạch thay thế bằng Hiwonder "MiniROS Controller" TẠM DỪNG (2026-08-19)** — chưa xác nhận tình trạng đơn hàng, quyết định tiếp tục dùng F411 rời + DRV8871 thay vì chờ/chuyển sang MiniROS. Xem mục 8 "MiniROS Controller — kế hoạch thay thế" (đã đánh dấu tạm dừng).
@@ -47,7 +47,7 @@ Robot AMR 4 bánh dẫn động Ackermann có khả năng tự định vị, l�
 - **Sơ đồ chân, nguồn, quy trình kết nối an toàn, rủi ro: xem mục 8 "Chuyển sang Hiwonder ROS Robot Controller"**. Nhiều chân còn ở trạng thái "cần xác minh", KHÔNG dùng khi chưa xác minh
 
 ### (CŨ) Slave: STM32F103C8T6 "Blue Pill" (rời, không phải Nucleo)
-> Mục này mô tả F103 dự phòng. F411 + DRV8871 (board dùng 2026-08-19 → 2026-09-28) được ghi ở mục 8. Cả hai đều là phần cứng CŨ từ 2026-09-29.
+> 🗑️ **Thư mục `amr_stm32f103/` đã XOÁ khỏi repo ngày 2026-09-30** (theo yêu cầu user, chỉ giữ F411 và F407). Cần lại thì lấy từ lịch sử git: `git checkout 00a0954 -- amr_stm32f103`. Mục này giữ làm lịch sử. F411 + DRV8871 (board dùng 2026-08-19 → 2026-09-28) được ghi ở mục 8. Cả hai đều là phần cứng CŨ từ 2026-09-29.
 
 - Firmware: STM32CubeIDE, project tại `amr_stm32f103/` — **project mới tạo từ đầu** (không phải generate lại từ F411), xem mục 8
 - Nạp/debug: **ST-Link V2 rời** — cắm SWCLK/SWDIO/GND + nguồn vào header SWD của Blue Pill
@@ -105,22 +105,13 @@ amr_ws/
 │   ├── amr_slam/           ← CHƯA
 │   ├── amr_navigation/     ← CHƯA
 │   └── amr_perception/     ← CHƯA
-├── firmware/               ← STM32 firmware CŨ (F446RE, đã hỏng — giữ tham khảo lịch sử, KHÔNG build/nạp nữa)
-│   ├── Core/Src/
-│   ├── Core/Inc/
-│   ├── Drivers/
-│   └── amr_stm32.ioc
-├── amr_stm32f407/          ← (CHƯA TẠO) firmware HIỆN TẠI dự kiến cho Hiwonder ROS Robot Controller (F407VET6), xem mục 8
+├── amr_stm32f407/          ← firmware HIỆN TẠI (superloop) cho Hiwonder ROS Robot Controller (F407VET6), branch `f407-port`, build OK, CHƯA nạp — xem mục 8
+├── amr_trampoline/         ← app OSEK/Trampoline cho ĐATN (fpu_check) + patches/ cho bản clone Trampoline — xem mục 8 "ĐATN"
 ├── amr_stm32f411/          ← STM32 firmware CŨ từ 2026-09-29 (F411 Black Pill + DRV8871). Branch `baseline-dwt` có hạ tầng đo DWT (chưa nạp) — sẽ port sang F407
 │   ├── Core/Src/
 │   ├── Core/Inc/
 │   ├── Drivers/
 │   └── amr_stm32f411.ioc
-├── amr_stm32f103/          ← STM32 firmware DỰ PHÒNG (F103 Blue Pill, đã verify ổn định 2026-07-21, không phải board đang dùng)
-│   ├── Core/Src/           ← Application code
-│   ├── Core/Inc/
-│   ├── Drivers/
-│   └── amr_stm32f103.ioc
 ├── reference/              ← Tài liệu Hiwonder MiniROS/JetAcker (đã .gitignore, KHÔNG push git — license personal use only)
 ├── docs/
 │   └── wiring-f411.html    ← Sơ đồ đấu dây đầy đủ F411 + DRV8871 + board debug servo (pin table, star ground, phân phối nguồn)
@@ -129,13 +120,13 @@ amr_ws/
 └── README.md
 ```
 
-> **Git:** repo chỉ còn **1 branch `main`** — branch `stm32-firmware` đã bị xóa.
-> Firmware nằm tại `amr_ws/firmware/` (không còn repo riêng).
+> **Git:** branch chính `main`; `f407-port` (F407 + Trampoline) đã gộp vào `main` 2026-09-30. Branch `baseline-dwt` (F411) chỉ có ở máy Windows.
+> 🗑️ **2026-09-30 đã xoá khỏi repo** `firmware/` (F446, đã hỏng) và `amr_stm32f103/` (F103). Chỉ còn firmware F411 và F407. Lấy lại từ lịch sử git nếu cần: `git checkout 00a0954 -- firmware amr_stm32f103`. Các đường dẫn `firmware/...` còn nhắc ở mục 8 là lịch sử.
 
 ### Workflow 2 máy (Windows ↔ Jetson)
 
-- **Windows**: STM32CubeIDE build/flash firmware từ `amr_ws/firmware/`
-- **Windows**: Claude Code viết `.c`/`.h` trong `amr_ws/firmware/Core/`
+- **Windows**: STM32CubeIDE build/flash firmware từ `amr_ws/amr_stm32f407/` (F411: `amr_stm32f411/`)
+- **Windows**: Claude Code viết `.c`/`.h` trong `amr_ws/amr_stm32f407/Core/`; app OSEK trong `amr_trampoline/`
 - **Jetson**: Claude Code viết ROS2 nodes trong `amr_ws/src/`
 - **Sync**: `git push`/`git pull` trên cả 2 máy (cùng branch `main`)
 
@@ -303,7 +294,6 @@ minicom -D /dev/ttyUSB0 -b 115200
 "C:/ST/STM32CubeIDE_2.1.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/tools/bin/STM32_Programmer_CLI.exe" \
   -c port=SWD -w "c:/Users/admin/Documents/amr_ws/amr_stm32f411/Debug/amr_stm32f411.elf" -v -rst
 
-# (F103 dự phòng, lệnh tương tự: đổi amr_stm32f411 -> amr_stm32f103)
 
 # Kiểm tra ST-Link + cổng UART (CH340) đang nhận diện
 STM32_Programmer_CLI.exe -l
@@ -458,7 +448,26 @@ Chưa có source firmware Hiwonder cho board này. Board thật có thể là V1
 
 #### Thay đổi kế hoạch
 - **Đo baseline DWT làm trên board MỚI**, sau khi chuyển firmware xong, để mọi số liệu của cả hai đồ án đều trên cùng một phần cứng. Branch `baseline-dwt` (F411) đã build đạt nhưng **không nạp**
-- Việc tiếp theo: **lập kế hoạch** tạo project CubeMX `amr_stm32f407/` (chỉ lập kế hoạch, chưa làm)
+- ✅ **2026-09-29 (branch `f407-port`, chưa merge `main`): project `amr_stm32f407/` đã tạo + port xong, build Debug/Release 0 lỗi 0 warning, CHƯA nạp** (board chưa về)
+  - `.ioc` viết tay rồi sinh code bằng **CubeMX 6.16.1 bản rời, chạy dòng lệnh** (`%LOCALAPPDATA%\Programs\STM32CubeMX\jre\bin\java.exe -jar STM32CubeMX.exe -q script.txt`, script: `config load <ioc>` / `project generate` / `exit`). ⚠️ Gọi `STM32CubeMX.exe -q` trực tiếp sẽ tách tiến trình và treo chờ hộp thoại → phải gọi qua `java.exe -jar`
+  - Import project headless: `-import "C:\...\amr_stm32f407"` phải dùng **dấu `\`**, dạng `c:/...` bị Eclipse hiểu là giao thức URI ("No file system is defined for scheme: c")
+  - ⚠️ Khi ghép code vào khối `USER CODE BEGIN 3`: dấu `}` đóng `while(1)` do CubeMX sinh nằm **bên trong** khối này, ghi đè cả khối là mất nó
+  - Bring-up: giữ **K1** khi reset → chế độ kiểm tra tương tác (`Core/Src/bringup.c`), output ra cả USART1 lẫn USART3. Checklist ngày hàng về: **`docs/bringup-f407.md`**
+  - Còn chờ đo trên board: `LEFT/RIGHT_CH_FWD/REV`, `LEFT/RIGHT_ENCODER_SIGN` (đang để +1, **chưa được tin dùng PID**), `MAX_TICKS_PER_INTERVAL`, `EN_SW_USE`/`EN_SW_RUN_LEVEL` (đang tắt), cực tính OE bộ đệm servo
+
+### 🎓 ĐATN — OSEK/Trampoline (từ 2026-09-30)
+
+- ⭐ **Cách làm việc: user là người mới, muốn TỰ học và TỰ làm để báo cáo được.** Thứ tự: đọc → hiểu → thiết kế (Claude giảng) → code (user viết, Claude review) → test. **Claude KHÔNG tự viết code hay tự chuyển giai đoạn khi user chưa yêu cầu.** Mỗi đầu việc có mức: Tự làm / Làm cùng / Claude làm, user giải thích lại
+- **Sổ tay làm việc chính (Claude Docs):** https://claude.ai/code/artifact/b8999f1f-6937-4e05-b481-7cafc3363337. Có 3 tab: Lộ trình (9 giai đoạn, bảng câu hỏi có cột "Trả lời của bạn"/"Claude nhận xét"), Thuật ngữ & ghi chú, Nhật ký. `docs/lo-trinh-datn.md` chỉ là bản chụp ngày 30/9, không cập nhật song song
+- Đề cương gốc: `reference/ĐA/DAKS — OSEK Trampoline trên AMR.pdf` (bản 28/9, vẫn viết theo F411 + BNO055 → **cần cập nhật với GVHD**)
+- **Trạng thái:** Claude đã làm trước (user chưa tham gia, sẽ rà lại ở GĐ 0) bước 1 của đề cương và một phần bước 3:
+  - Trampoline clone tại `Documents/trampoline` (**ngoài repo**), branch `amr-f407` = upstream `ff28702` + 2 bản vá (bản sao ở `amr_trampoline/patches/`)
+  - goil 3.1.16 tự build bằng WinLibs GCC 16.1 (`C:\winlibs\...`). MinGW 6.3 cũ không đủ C++17
+  - Build blink và `amr_trampoline/fpu_check` OK (chỉ build, **chưa nạp**)
+  - Port stm32f407 gốc là **soft-float** → đã vá sang hard-float + `USEFLOAT`. Lý do: superloop là hard-float, khác float ABI thì so sánh jitter vô nghĩa
+  - Hướng dẫn: `docs/trampoline-setup.md`. Build: `scripts/trampoline_build.sh <app_dir>`
+- **Quy tắc OSEK:** task dùng float phải khai `USEFLOAT = TRUE`; ISR KHÔNG dùng float (đã tắt lazy stacking ASPEN/LSPEN)
+- **Việc tiếp theo:** user làm GĐ 0 (rà lại toolchain, trả lời câu hỏi trong sổ tay) → GĐ 1 lý thuyết. Ghép HAL + board Hiwonder vào Trampoline là GĐ 5, chưa làm
 
 ### ✅ Giai đoạn 1 — Nền tảng & Môi trường: HOÀN THÀNH
 - [x] GitHub repo tạo xong, toàn bộ code push lên
@@ -1437,7 +1446,7 @@ Jetson, hoặc X11-forward (`ssh -X`, chậm), hoặc chạy RViz trên laptop c
 
 ### Quyết định kỹ thuật đã chốt
 - ⭐ **STM32 slave HIỆN TẠI (từ 2026-09-29): Hiwonder "ROS Robot Controller" (STM32F407VET6)**, board tích hợp driver YX-4055AM, bus servo, CAN VP230, MPU-6050. Chưa có firmware. Pin LiPo 3S → terminal 21. Quy trình kết nối "một đường nối, một máy" là bắt buộc. Xem mục đầu mục 8. Hai gạch đầu dòng F411/DRV8871 ngay dưới đây là quyết định CŨ.
-- (CŨ) **STM32 slave (2026-08-19 → 2026-09-28): F411CEU6 "Black Pill" rời (board mới) + ST-Link ngoài** — không phải F103 nữa. F103 (`amr_stm32f103/`) vẫn giữ nguyên, đã verify ổn định 2026-07-21, giữ làm phương án dự phòng.
+- (CŨ) **STM32 slave (2026-08-19 → 2026-09-28): F411CEU6 "Black Pill" rời (board mới) + ST-Link ngoài** — không phải F103 nữa. F103 (`amr_stm32f103/`) đã verify ổn định 2026-07-21; **thư mục đã xoá khỏi repo 2026-09-30** (còn trong lịch sử git).
 - **⏸️ Kế hoạch Hiwonder "MiniROS Controller" TẠM DỪNG (2026-08-19)** — xem "MiniROS Controller — kế hoạch thay thế" bên dưới (đã đánh dấu tạm dừng). Quyết định tiếp tục dùng F411 rời + DRV8871 thay vì chuyển sang MiniROS.
 - (CŨ) Motor driver: **DRV8871 x2 (1 module/motor), thay BTS7960 2026-08-19** — chỉ 2 chân logic IN1/IN2 (PA6/PA7 trái, PB0/PB1 phải), không R_EN/L_EN, VM/GND/OUT1/OUT2 qua terminal vít, dây ≥18-20AWG. Firmware không đổi (cùng interface "PWM 1 chân, chân kia=0"). Xem mục "Chuyển hẳn sang F411 (board mới) + DRV8871" phía trên.
 - Encoder: đấu thẳng vào STM32 qua TIM Encoder Mode (TIM2 trái 32-bit + TIM4 phải 16-bit trên F411), VCC encoder dùng 3.3V (không phải 5V — an toàn cho GPIO STM32, đã cân nhắc và loại bỏ giả thuyết đổi 5V khi debug giật cục 2026-08-19)

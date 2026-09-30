@@ -27,6 +27,7 @@
 #include "jetson_comm.h"
 #include "ackermann.h"
 #include "bno055_test.h"  /* Test độc lập BNO055 qua I2C1 - xem CLAUDE.md mục 8 */
+#include "dwt_log.h"      /* Đo timing baseline bằng DWT (branch baseline-dwt) */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,6 +74,9 @@ static uint8_t  vel_watchdog_tripped = 0; /* Tránh gọi SetSpeed(0,0) lặp l�
 static BNO055_TestResult bno_result;      /* Kết quả quét địa chỉ + CHIP_ID lúc init */
 static uint32_t          last_imu_ms = 0; /* Mốc thời gian đọc heading gần nhất */
 #define IMU_READ_INTERVAL_MS  150U        /* 1 lần/150ms, không ảnh hưởng watchdog 300ms */
+
+/* [ĐO] Số lần đã đo overhead ghi log (tối đa DWT_OVH_SAMPLES, xem dwt_log.h) */
+static uint32_t dwt_ovh_done = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -117,7 +121,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  DWT_Init();   /* [ĐO] Bật DWT CYCCNT (100 MHz -> 10 ns/tick). Chỉ đếm, chưa ghi log. */
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -165,7 +169,21 @@ int main(void)
 		  DRV_Motor_GetEncoder(&enc_l, &enc_r);
 
 		  /* Gửi "$ODO,enc_l,enc_r,steer\n" lên Jetson */
-		  APP_Comm_SendOdom(enc_l, enc_r, current_steer);
+		  /* [ĐO] EV_ODO bao trọn snprintf + gửi polling, len = số byte thật */
+		  uint32_t dwt_t0 = DWT_Now();
+		  int odo_len = APP_Comm_SendOdom(enc_l, enc_r, current_steer);
+		  DWT_Log(EV_ODO, dwt_t0, DWT_Now(), (uint16_t)odo_len);
+
+		  /* [ĐO] Đo chi phí của chính việc ghi log, chỉ DWT_OVH_SAMPLES lần đầu
+		   * phiên đo (để không tốn chỗ trong buffer). EV_LOG_OVH bao trọn đúng
+		   * 1 lần ghi bản ghi rỗng EV_DUMMY -> thời lượng của nó = chi phí
+		   * 1 lần DWT_Log() + 1 lần DWT_Now(). */
+		  if (log_active == DWT_LOG_RUN && dwt_ovh_done < DWT_OVH_SAMPLES) {
+			  dwt_ovh_done++;
+			  uint32_t dwt_ta = DWT_Now();
+			  DWT_Log(EV_DUMMY, dwt_ta, dwt_ta, 0u);
+			  DWT_Log(EV_LOG_OVH, dwt_ta, DWT_Now(), 0u);
+		  }
 	  }
 
 	  /* ---- Vòng PID tốc độ 2 bánh (closed-loop, xem motor_driver.c/motor_pid.h).
@@ -175,6 +193,12 @@ int main(void)
 
 	  /* ---- Xử lý lệnh "$VEL" nhận từ Jetson (gọi on_cmd_vel khi đủ frame) ---- */
 	  APP_Comm_Parse();
+
+	  /* [ĐO] Bắt đầu ghi log khi nhận $VEL hợp lệ ĐẦU TIÊN -- tránh buffer bị
+	   * lấp đầy bởi giai đoạn chờ (xe đứng yên) trước khi script gửi lệnh. */
+	  if (log_active == DWT_LOG_IDLE && last_vel_rx_ms != 0U) {
+		  DWT_LogStart();
+	  }
 
 	  /* ---- AN TOÀN: watchdog $VEL — xem giải thích đầy đủ ở khai báo biến
 	   * last_vel_rx_ms phía trên.
@@ -190,6 +214,9 @@ int main(void)
 	      (now_wd - last_vel_rx_ms) > VEL_WATCHDOG_TIMEOUT_MS) {
 		  DRV_Motor_SetSpeed(0, 0);
 		  vel_watchdog_tripped = 1U;
+		  /* [ĐO] Script ngừng gửi $VEL -> kết thúc phiên đo, log_buf đứng yên
+		   * để dump. Chỉ ĐỌC sự kiện watchdog, không đổi logic watchdog. */
+		  DWT_LogStop();
 	  }
 
 	  /* ---- Test độc lập BNO055: đọc heading tối đa 1 lần/150ms, đặt SAU
@@ -202,7 +229,10 @@ int main(void)
 			  char dbg[32];
 			  int n = snprintf(dbg, sizeof(dbg), "$IMUH,%.1f\n", (double)heading);
 			  if (n > 0) {
+				  /* [ĐO] EV_IMUH chỉ bao lần gửi polling (không gồm đọc I2C) */
+				  uint32_t dwt_t1 = DWT_Now();
 				  APP_Comm_DebugPrint(dbg);
+				  DWT_Log(EV_IMUH, dwt_t1, DWT_Now(), (uint16_t)n);
 			  }
 		  }
 	  }
